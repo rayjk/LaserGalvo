@@ -48,16 +48,16 @@ int main(int argc, char* argv[])
 		portaudio::System &sys = portaudio::System::instance();
 
 		if (argc > 2)
-		{	
-			iInputDevice 	= atoi(argv[1]); 
-			iOutputDevice 	= atoi(argv[2]); 
+		{
+			iInputDevice 	= atoi(argv[1]);
+			iOutputDevice 	= atoi(argv[2]);
 
 			cout << "Using input device index = " << iInputDevice << endl;
 			cout << "Using output device index = " << iOutputDevice << endl;
 		}
 		else
 		{
-			cout << "Using system default input/output devices..." << endl;		  
+			cout << "Using system default input/output devices..." << endl;
 			iInputDevice	= sys.defaultInputDevice().index();
 			iOutputDevice	= sys.defaultOutputDevice().index();
 		}
@@ -65,10 +65,10 @@ int main(int argc, char* argv[])
 
 		// List out all the devices we have
 		int 	iNumDevices 		= sys.deviceCount();
-		int 	iIndex 				= 0;			
+		int 	iIndex 				= 0;
 		string	strDetails			= "";
 
-		std::cout << "Number of devices = " << iNumDevices << std::endl;		
+		std::cout << "Number of devices = " << iNumDevices << std::endl;
 		if ((iInputDevice >= 0) && (iInputDevice >= iNumDevices))
 		{
 			cout << "Input device index out of range!" << endl;
@@ -106,7 +106,7 @@ int main(int argc, char* argv[])
 
 
 		// On linux, it wasn't possible to open two output streams
-		// at the same time, so we'll create a sine wave tone 
+		// at the same time, so we'll create a sine wave tone
 		// output stream for the start of the recording, then let
 		// it scope out so we can create a playback stream.
 		{
@@ -115,52 +115,48 @@ int main(int argc, char* argv[])
 			portaudio::DirectionSpecificStreamParameters outParamsBeep(sys.deviceByIndex(iOutputDevice), 2, portaudio::FLOAT32, false, sys.deviceByIndex(iOutputDevice).defaultLowOutputLatency(), NULL);
 			portaudio::StreamParameters paramsBeep(portaudio::DirectionSpecificStreamParameters::null(), outParamsBeep, SAMPLE_RATE, FRAMES_PER_BUFFER, paClipOff);
 
-			// Create (and open) a new Stream, using the SineGenerator::generate function as a callback:		
+			// Create (and open) a new Stream, using the SineGenerator::generate function as a callback:
 			cout << "Opening beep output stream on: " << sys.deviceByIndex(iOutputDevice).name() << endl;
 			portaudio::MemFunCallbackStream<SineGenerator> streamBeep(paramsBeep, sineGenerator, &SineGenerator::generate);
-			
+
 			cout << "Press enter to START recording after the beep.";
-			cin.get(chWait);
+			//cin.get(chWait);
 
 			// Play the beep before starting the recording
-			streamBeep.start();
-			sys.sleep(BEEP_SECONDS * 1000);
-			streamBeep.stop();
-			streamBeep.close();
+			//streamBeep.start();
+			//sys.sleep(BEEP_SECONDS * 1000);
+			// streamBeep.stop();
+			// streamBeep.close();
 
 		} // end scope of sine output stream
-	
+
 		cout << "Opening recording input stream on " << sys.deviceByIndex(iInputDevice).name() << endl;
 		portaudio::DirectionSpecificStreamParameters inParamsRecord(sys.deviceByIndex(iInputDevice), 1, portaudio::INT16, false, sys.deviceByIndex(iInputDevice).defaultLowInputLatency(), NULL);
-		portaudio::StreamParameters paramsRecord(inParamsRecord, portaudio::DirectionSpecificStreamParameters::null(), SAMPLE_RATE, FRAMES_PER_BUFFER, paClipOff);		
+		portaudio::StreamParameters paramsRecord(inParamsRecord, portaudio::DirectionSpecificStreamParameters::null(), SAMPLE_RATE, FRAMES_PER_BUFFER, paClipOff);
 		portaudio::MemFunCallbackStream<AudioBuffer> streamRecord(paramsRecord, objAudioBuffer, &AudioBuffer::RecordCallback);
-	   
+
 		cout << "Opening playback output stream on " << sys.deviceByIndex(iOutputDevice).name() << endl;
 		portaudio::DirectionSpecificStreamParameters outParamsPlayback(sys.deviceByIndex(iOutputDevice), 1, portaudio::INT16, false, sys.deviceByIndex(iOutputDevice).defaultLowOutputLatency(), NULL);
-		portaudio::StreamParameters paramsPlayback(portaudio::DirectionSpecificStreamParameters::null(), outParamsPlayback, SAMPLE_RATE, FRAMES_PER_BUFFER, paClipOff);		
-		portaudio::MemFunCallbackStream<AudioBuffer> streamPlayback(paramsPlayback, objAudioBuffer, &AudioBuffer::PlaybackCallback);
-		
+		portaudio::StreamParameters paramsPlayback(portaudio::DirectionSpecificStreamParameters::null(), outParamsPlayback, SAMPLE_RATE, FRAMES_PER_BUFFER, paClipOff);
+
 		cout << "Press enter to STOP recording.";
 		streamRecord.start();
 		cin.get(chWait);
 		streamRecord.stop();
 
-		cout << "Writing samples to audio.raw" << endl;
-		objAudioBuffer.WriteToFile("audio.raw");
+		// cout << "Writing samples to audio.raw" << endl;
+		// objAudioBuffer.WriteToFile("audio.raw");
+		//
+		// while (streamPlayback.isActive())
+		// 	sys.sleep(100);
+		// streamPlayback.stop();
 
-		cout << "Playing back samples." << endl;
-		objAudioBuffer.ResetPlayback();
-		streamPlayback.start();
-		while (streamPlayback.isActive())
-			sys.sleep(100);
-		streamPlayback.stop();
-	   
 
 		// Close the Stream (not strictly needed as terminating the System will also close all open Streams):
-		streamRecord.close();
-		streamPlayback.close();
+		// streamRecord.close();
+		// streamPlayback.close();
 
-		// Terminate the System (not strictly needed as the AutoSystem will also take care of this when it 
+		// Terminate the System (not strictly needed as the AutoSystem will also take care of this when it
 		// goes out of scope):
 		sys.terminate();
 
@@ -184,5 +180,3 @@ int main(int argc, char* argv[])
 
 	return 0;
 }
-
-

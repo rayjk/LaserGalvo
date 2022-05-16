@@ -1,5 +1,5 @@
 
-// Class that can be used to record, playback and save audio data 
+// Class that can be used to record, playback and save audio data
 // to a file.  It is designed to be a producer/consumer with the
 // portaudio library.
 //
@@ -27,25 +27,18 @@ class AudioBuffer
 		AudioBuffer(int iSizeHint);
 		~AudioBuffer();
 		
-		int RecordCallback(const void* pInputBuffer, 
-							void* pOutputBuffer, 
-							unsigned long iFramesPerBuffer, 
-							const PaStreamCallbackTimeInfo* timeInfo, 
+		int RecordCallback(const void* pInputBuffer,
+							void* pOutputBuffer,
+							unsigned long iFramesPerBuffer,
+							const PaStreamCallbackTimeInfo* timeInfo,
 							PaStreamCallbackFlags statusFlags);
-		int PlaybackCallback(const void* pInputBuffer, 
-							void* pOutputBuffer, 
-							unsigned long iFramesPerBuffer, 
-							const PaStreamCallbackTimeInfo* timeInfo, 
-							PaStreamCallbackFlags statusFlags);
+
 		void Clear();
 		void WriteToFile(const string& strFilename);
 		void ResetPlayback();
 
 	private:
 		VECTOR_SHORT		m_vectorSamples;					// Holds the 16-bit mono samples
-		VECTOR_SHORT_ITER	m_iPlaybackIter;					// Tracks where we are during playback
-
 };
 
 #endif
-
