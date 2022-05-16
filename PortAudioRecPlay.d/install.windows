@@ -1,0 +1,53 @@
+
+Here are the steps to get the sample to build on Windows 
+using Visual Studio 2005.
+
+1) Download latest stable version of portaudio tar file:
+	 http://www.portaudio.com/download.html
+
+2) Extract to some location like c:\source\c\portaudio (this 
+   should be sibling folder to the location of the example, 
+   i.e. of c:\source\c\PortAudioRecPlay).
+
+3) Download and install the DirectX SDK:
+	 http://msdn2.microsoft.com/en-us/xna/aa937788.aspx
+
+4) Add a system variable "DirectXSDK" giving the directory 
+   of the DirectX SDK (i.e. c:\program files\Microsoft DirectX SDK).
+
+5) Download the ASIO SDK:
+	 http://www.steinberg.net/329+M52087573ab0.html
+
+6) Unpack the ASIO SDK into a directory named "asiosdk" in the 
+   portaudio directory:
+     unzip asiosdk2.2.zip -d c:\source\c\portaudio\src\hostapi\asio	
+
+7) Download and install the Microsoft Vista SDK:
+     http://www.microsoft.com/downloads/details.aspx?familyid=C2B1E300-F358-4523-B479-F53D234CDCCF&displaylang=en
+
+8) Visual Studio needs to find the Vista SDK first, before any 
+   other older platform  SDKs.  To insure this, add include and 
+   library paths to Vista SDK at the top of the search order in 
+   Tools->Options->Projects and Solutions->VC++ Directories:
+	 Include directories:
+       C:\Program Files\Microsoft SDKs\Windows\v6.0\Include
+     Library directories:
+       C:\Program Files\Microsoft SDKs\Windows\v6.0\Lib\x86
+       C:\Program Files\Microsoft SDKs\Windows\v6.0\Lib
+
+9) Load the PortAudioRecPlay solution and bulid.
+
+10) In Windows, the default input/output device of the 
+    "Microsoft Sound Mapper" device seems to be controlled by 
+    Control Panels->Sound and Audio Devices->Audio
+
+11) Run PortAudioRecPlay, no command line arguments will use 
+    default input/output device.  Otherwise you can give command 
+    line parameters:
+	  PortAudioRecPlay [input device index] [output device index]
+
+Have fun!
+Keith Vertanen
+
+
+
