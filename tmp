@@ -10,14 +10,15 @@ using namespace std;
 
 #define PTS_SQ 400
 #define PTS_MID (PTS_SQ/2)
-#define FRAMES 2000
+//#define FRAMES 2000
+#define FRAMES 2
 #define CYCLES 20
 #define PAUSE 20
 #define SCALE .8
 
 #include <fftw3.h>
 
-#define NUM_POINTS 64
+#define NUM_POINTS 1024
 
 
 /* Never mind this bit */
@@ -51,32 +52,91 @@ void acquire_from_somewhere(fftw_complex* signal) {
     }
 }
 
+void get_stdin_audio(fftw_complex* signal){
+  int i;
+  for (i = 0; i < NUM_POINTS; ++i) {
+      //double theta = (double)i / (double)NUM_POINTS * M_PI;
+
+      int pt;
+      string line;
+      getline(cin, line);
+      sscanf(line.c_str(), "%d", &pt);
+      signal[i][REAL] = pt;
+
+      signal[i][IMAG] = 0;
+  }
+}
+
 void do_something_with(fftw_complex* result, float* freq_arr) {
     int i;
+    int maxAmp = 0;
+    int domFreq;
+    int curAmp;
     for (i = 0; i < NUM_POINTS; ++i) {
-        freq_arr[i] = sqrt(result[i][REAL] * result[i][REAL] +
-                          result[i][IMAG] * result[i][IMAG]);
+        curAmp = result[i][REAL];
+        freq_arr[i] = curAmp;
+        if (curAmp > maxAmp){
+          maxAmp = curAmp;
+          domFreq = i;
+        }
+
     }
+    domFreq = (float) domFreq * 2.9297;
+    if (domFreq > 60)
+      cout << domFreq << ',' << maxAmp << endl;
+
 }
+
+// void do_something_with(fftw_complex* result, double* freq_arr) {
+//     int i;
+//     double maxAmp = 0;
+//     float domFreq;
+//     double curAmp;
+//     for (i = 0; i < NUM_POINTS; ++i) {
+//         curAmp = result[i][REAL];
+//         if (curAmp > maxAmp){
+//           maxAmp = curAmp;
+//         }
+//
+//     }
+//     for (i = 0; i < NUM_POINTS; ++i) {
+//         curAmp = result[i][REAL];
+//         if (curAmp == maxAmp){
+//           domFreq = i * 2.9297;
+//           cout << domFreq << ',' << maxAmp << endl;
+//         }
+//         curAmp = curAmp / maxAmp;
+//         if (curAmp >= 0)
+//           freq_arr[i] = curAmp;
+//         else
+//           freq_arr[i] = 0.;
+//     }
+//     // domFreq = (float) domFreq * 2.9297;
+//     // if (domFreq > 60)
+//     //   cout << domFreq << ',' << maxAmp << endl;
+//     //cout << maxAmp << endl;
+//
+// }
 
 
 /* Resume reading here */
 
-void getFreqArr(float* freq_arr) {
-    fftw_complex signal[NUM_POINTS];
-    fftw_complex result[NUM_POINTS];
+void getFreqArr(double* freq_arr) {
+  fftw_complex signal[NUM_POINTS];
+  fftw_complex result[NUM_POINTS];
 
-    fftw_plan plan = fftw_plan_dft_1d(NUM_POINTS,
-                                      signal,
-                                      result,
-                                      FFTW_FORWARD,
-                                      FFTW_ESTIMATE);
+  fftw_plan plan = fftw_plan_dft_1d(NUM_POINTS,
+                                    signal,
+                                    result,
+                                    FFTW_FORWARD,
+                                    FFTW_ESTIMATE);
 
-    acquire_from_somewhere(signal);
-    fftw_execute(plan);
-    do_something_with(result, freq_arr);
+  //acquire_from_somewhere(signal);
+  get_stdin_audio(signal);
+  fftw_execute(plan);
+  do_something_with(result, freq_arr);
 
-    fftw_destroy_plan(plan);
+  fftw_destroy_plan(plan);
 }
 
 tuple<int, int, int> HSVtoRGB(float H, float S,float V){
@@ -156,7 +216,7 @@ int main(void)
 		//y = i * 0xFFF / 30;
 
     // Spectrum Analysis
-    float freq_arr[NUM_POINTS];
+    double freq_arr[NUM_POINTS];
     getFreqArr(freq_arr);
     int arrIdx;
 
@@ -170,12 +230,13 @@ int main(void)
       if (j < PTS_MID){
         tie(r,g,b) = HSVtoRGB((float)j/(float)PTS_MID*360., 100., 100.);
         arrIdx = (int)(float)j/(float)PTS_MID*((float)NUM_POINTS);
-        y = 0xFFF * ((float)freq_arr[arrIdx]/100.);
+        y = (float)0xFFF * freq_arr[arrIdx];
+        //cout << y << ','<< freq_arr[arrIdx] << endl;
         x = j * 0xFFF / PTS_MID;
       } else {
         tie(r,g,b) = HSVtoRGB(360 - (float)(j-PTS_MID)/(float)PTS_MID*360., 100., 100.);
         arrIdx = NUM_POINTS - (int)(float)(j-PTS_MID)/(float)PTS_MID*((float)NUM_POINTS);
-        y = 0xFFF * ((float)freq_arr[arrIdx]/100.);
+        y = (float) 0xFFF * freq_arr[arrIdx];
         x = 0xFFF - ((j - PTS_MID) * 0xFFF / PTS_MID);
       }
 
@@ -201,9 +262,9 @@ int main(void)
 	int i = 0;
 	while (1)
 	{
-		i++;
-		if (i > FRAMES * CYCLES) //cancel after 5 cycles, 30 frames each
-			break;
+		// i++;
+		// if (i > FRAMES * CYCLES) //cancel after 5 cycles, 30 frames each
+		// 	break;
 
 		for (int j = 0; j < numDevs; j++)
 		{

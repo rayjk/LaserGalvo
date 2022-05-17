@@ -26,14 +26,13 @@ class AudioBuffer
 	public:
 		AudioBuffer(int iSizeHint);
 		~AudioBuffer();
-		
+
 		int RecordCallback(const void* pInputBuffer,
 							void* pOutputBuffer,
 							unsigned long iFramesPerBuffer,
 							const PaStreamCallbackTimeInfo* timeInfo,
 							PaStreamCallbackFlags statusFlags);
 
-		void Clear();
 		void WriteToFile(const string& strFilename);
 		void ResetPlayback();
 

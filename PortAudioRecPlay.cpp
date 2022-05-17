@@ -18,8 +18,8 @@
 // ---------------------------------------------------------------------
 // Some constants:
 const int		BEEP_SECONDS		= 1;
-const double	SAMPLE_RATE			= 16000.0;
-const int		FRAMES_PER_BUFFER	= 64;
+const double	SAMPLE_RATE			= 8000.0;
+const int		FRAMES_PER_BUFFER	= 128;
 const int		TABLE_SIZE			= 200;
 
 using namespace std;
@@ -39,27 +39,26 @@ int main(int argc, char* argv[])
 		SineGenerator sineGenerator(TABLE_SIZE);
 
 		// Create a object that is used to record, save to file and play the audio.
-		AudioBuffer	objAudioBuffer((int) (SAMPLE_RATE * 60));
+		AudioBuffer	objAudioBuffer((int) (SAMPLE_RATE * 1));
 
-		cout << "Setting up PortAudio..." << endl;
+		////cout << "Setting up PortAudio..." << endl;
 
 		// Set up the System:
 		portaudio::AutoSystem autoSys;
 		portaudio::System &sys = portaudio::System::instance();
 
-		if (argc > 2)
+		if (argc > 1)
 		{
 			iInputDevice 	= atoi(argv[1]);
-			iOutputDevice 	= atoi(argv[2]);
 
-			cout << "Using input device index = " << iInputDevice << endl;
-			cout << "Using output device index = " << iOutputDevice << endl;
+			//cout << "Using input device index = " << iInputDevice << endl;
+			//cout << "Using output device index = " << iOutputDevice << endl;
 		}
 		else
 		{
-			cout << "Using system default input/output devices..." << endl;
+			//cout << "Using system default input/output devices..." << endl;
 			iInputDevice	= sys.defaultInputDevice().index();
-			iOutputDevice	= sys.defaultOutputDevice().index();
+		  iOutputDevice	= sys.defaultOutputDevice().index();
 		}
 
 
@@ -68,17 +67,17 @@ int main(int argc, char* argv[])
 		int 	iIndex 				= 0;
 		string	strDetails			= "";
 
-		std::cout << "Number of devices = " << iNumDevices << std::endl;
-		if ((iInputDevice >= 0) && (iInputDevice >= iNumDevices))
-		{
-			cout << "Input device index out of range!" << endl;
-			return 0;
-		}
-		if ((iOutputDevice >= 0) && (iOutputDevice >= iNumDevices))
-		{
-			cout << "Ouput device index out of range!" << endl;
-			return 0;
-		}
+		//std::cout << "Number of devices = " << iNumDevices << std::endl;
+		// if ((iInputDevice >= 0) && (iInputDevice >= iNumDevices))
+		// {
+		// 	//cout << "Input device index out of range!" << endl;
+		// 	return 0;
+		// }
+		// if ((iOutputDevice >= 0) && (iOutputDevice >= iNumDevices))
+		// {
+		// 	//cout << "Ouput device index out of range!" << endl;
+		// 	return 0;
+		// }
 
 
 		//		portaudio::Device inDevice = portaudio::Device(sys.defaultInputDevice());
@@ -86,23 +85,23 @@ int main(int argc, char* argv[])
 		//		portaudio::Device& inDevice 	= sys.deviceByIndex(iInputDevice);
 		//portaudio::Device& outDevice 	= sys.deviceByIndex(iOutputDevice);
 
-		for (portaudio::System::DeviceIterator i = sys.devicesBegin(); i != sys.devicesEnd(); ++i)
-		{
-			strDetails = "";
-			if ((*i).isSystemDefaultInputDevice())
-				strDetails += ", default input";
-			if ((*i).isSystemDefaultOutputDevice())
-				strDetails += ", default output";
-
-			cout << (*i).index() << ": " << (*i).name() << ", ";
-			cout << "in=" << (*i).maxInputChannels() << " ";
-			cout << "out=" << (*i).maxOutputChannels() << ", ";
-			cout << (*i).hostApi().name();
-
-			cout << strDetails.c_str() << endl;
-
-			iIndex++;
-		}
+		// for (portaudio::System::DeviceIterator i = sys.devicesBegin(); i != sys.devicesEnd(); ++i)
+		// {
+		// 	// strDetails = "";
+		// 	// if ((*i).isSystemDefaultInputDevice())
+		// 	// 	strDetails += ", default input";
+		// 	// if ((*i).isSystemDefaultOutputDevice())
+		// 	// 	strDetails += ", default output";
+		//
+		// 	//cout << (*i).index() << ": " << (*i).name() << ", ";
+		// 	//cout << "in=" << (*i).maxInputChannels() << " ";
+		// 	//cout << "out=" << (*i).maxOutputChannels() << ", ";
+		// 	//cout << (*i).hostApi().name();
+		//
+		// 	//cout << strDetails.c_str() << endl;
+		//
+		// 	iIndex++;
+		// }
 
 
 		// On linux, it wasn't possible to open two output streams
@@ -116,10 +115,10 @@ int main(int argc, char* argv[])
 			portaudio::StreamParameters paramsBeep(portaudio::DirectionSpecificStreamParameters::null(), outParamsBeep, SAMPLE_RATE, FRAMES_PER_BUFFER, paClipOff);
 
 			// Create (and open) a new Stream, using the SineGenerator::generate function as a callback:
-			cout << "Opening beep output stream on: " << sys.deviceByIndex(iOutputDevice).name() << endl;
+			//cout << "Opening beep output stream on: " << sys.deviceByIndex(iOutputDevice).name() << endl;
 			portaudio::MemFunCallbackStream<SineGenerator> streamBeep(paramsBeep, sineGenerator, &SineGenerator::generate);
 
-			cout << "Press enter to START recording after the beep.";
+			//cout << "Press enter to START recording after the beep.";
 			//cin.get(chWait);
 
 			// Play the beep before starting the recording
@@ -130,21 +129,21 @@ int main(int argc, char* argv[])
 
 		} // end scope of sine output stream
 
-		cout << "Opening recording input stream on " << sys.deviceByIndex(iInputDevice).name() << endl;
+		//cout << "Opening recording input stream on " << sys.deviceByIndex(iInputDevice).name() << endl;
 		portaudio::DirectionSpecificStreamParameters inParamsRecord(sys.deviceByIndex(iInputDevice), 1, portaudio::INT16, false, sys.deviceByIndex(iInputDevice).defaultLowInputLatency(), NULL);
 		portaudio::StreamParameters paramsRecord(inParamsRecord, portaudio::DirectionSpecificStreamParameters::null(), SAMPLE_RATE, FRAMES_PER_BUFFER, paClipOff);
 		portaudio::MemFunCallbackStream<AudioBuffer> streamRecord(paramsRecord, objAudioBuffer, &AudioBuffer::RecordCallback);
 
-		cout << "Opening playback output stream on " << sys.deviceByIndex(iOutputDevice).name() << endl;
+		//cout << "Opening playback output stream on " << sys.deviceByIndex(iOutputDevice).name() << endl;
 		portaudio::DirectionSpecificStreamParameters outParamsPlayback(sys.deviceByIndex(iOutputDevice), 1, portaudio::INT16, false, sys.deviceByIndex(iOutputDevice).defaultLowOutputLatency(), NULL);
 		portaudio::StreamParameters paramsPlayback(portaudio::DirectionSpecificStreamParameters::null(), outParamsPlayback, SAMPLE_RATE, FRAMES_PER_BUFFER, paClipOff);
 
-		cout << "Press enter to STOP recording.";
+		//cout << "Press enter to STOP recording.";
 		streamRecord.start();
 		cin.get(chWait);
 		streamRecord.stop();
 
-		// cout << "Writing samples to audio.raw" << endl;
+		// //cout << "Writing samples to audio.raw" << endl;
 		// objAudioBuffer.WriteToFile("audio.raw");
 		//
 		// while (streamPlayback.isActive())
@@ -163,19 +162,19 @@ int main(int argc, char* argv[])
 	}
 	catch (const portaudio::PaException &e)
 	{
-		cout << "A PortAudio error occured: " << e.paErrorText() << endl;
+		//cout << "A PortAudio error occured: " << e.paErrorText() << endl;
 	}
 	catch (const portaudio::PaCppException &e)
 	{
-		cout << "A PortAudioCpp error occured: " << e.what() << endl;
+		//cout << "A PortAudioCpp error occured: " << e.what() << endl;
 	}
 	catch (const exception &e)
 	{
-		cout << "A generic exception occured: " << e.what() << endl;
+		//cout << "A generic exception occured: " << e.what() << endl;
 	}
 	catch (...)
 	{
-		cout << "An unknown exception occured." << endl;
+		//cout << "An unknown exception occured." << endl;
 	}
 
 	return 0;

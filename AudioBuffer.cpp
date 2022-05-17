@@ -30,15 +30,12 @@ int AudioBuffer::RecordCallback(const void* pInputBuffer,
 	for (unsigned long i = 0; i < iFramesPerBuffer; i++)
 		//m_vectorSamples.push_back(pData[0][i]);
 		cout << pData[0][i] << endl;
-	return 1;
-	//return paContinue;
+	//return 1;
+	return paContinue;
 }
 
 // Clear out any data in the buffer and prepare for a new recording.
-void AudioBuffer::Clear()
-{
-	m_vectorSamples.clear();
-}
+
 
 // Dumpt the samples to a raw file
 void AudioBuffer::WriteToFile(const string& strFilename)
