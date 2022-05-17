@@ -40,30 +40,42 @@ HeliosPoint frame[FRAMES][PTS_SQ];
 double MAX_MAG = 0;
 float PREV_ARR[NUM_POINTS/2];
 
-tuple<int, int> rescaleXY (int x, int y, int loopCount){//, bool graphFlag){
+tuple<int, int> rescaleXY (int x, int y, int loopCount, float cusScale = SCALE){//, bool graphFlag){
   // float localScale = SCALE + (SCALE / (float)(loopCount%3+1)) / 2.;
-  x = -1.*(float)(x - 0xFFF/2) * SCALE + 0xFFF/2;
+  x = -1.*(float)(x - 0xFFF/2) * cusScale + 0xFFF/2;
   // if (graphFlag)
   //   y = -1.*(float)(y * localScale - 0xFFF/2) * SCALE + 0xFFF/2;
   // else
-    y = -1.*(float)(y - 0xFFF/2) * SCALE + 0xFFF/2;
+  y = -1.*(float)(y - 0xFFF/2) * cusScale + 0xFFF/2;
+  if (y>0xFFF)
+    y=0xFFF;
   return make_tuple(x,y);
 }
 
-tuple<int, int> rotateXY (int x, int y, int i, int rate){
+tuple<int, int> rotateXY (int x, int y, int i, int rate, bool off90 = false){
   i = i%rate;
   // if (i<rate/2)
   //   x = (float)x * ((float)i/(float)(rate/2));
   // else
   //   x = (float)x * (1.-(float)(i-rate/2)/(float)(rate/2));
   int xStd = x - 0xFFF/2;
-  x = (x - 0xFFF/2) * (sin((float)i/(float)rate*2.*PI)) + 0xFFF/2;
-  // if (xStd < 0)
-  y = y*(7./9.);
-  y = y+(cos((float)i/(float)rate*2.*PI))*0xFFF/9.*((float)xStd/((float)0xFFF/2.));
-  y = y + 0xFFF/9.;
-  if (y>0xFFF)
-    y=0xFFF;
+  int yStd = y - 0xFFF/2;
+  if (off90){
+    x = (x - 0xFFF/2) * (sin((float)i/(float)rate*2.*PI)) + 0xFFF/2;
+    // if (xStd < 0)
+    y = y*(7./9.);
+    y = y+(cos((float)i/(float)rate*2.*PI))*0xFFF/9.*((float)xStd/((float)0xFFF/2.));
+    y = y + 0xFFF/9.;
+  }
+  else{
+    x = (x - 0xFFF/2) * (cos((float)i/(float)rate*2.*PI+PI)) + 0xFFF/2;
+    // if (xStd < 0)
+    y = y*(7./9.);
+    y = y+(cos((float)i/(float)rate*2.*PI+PI))*0xFFF/9.*((float)xStd/((float)0xFFF/2.));
+    y = y + 0xFFF/9.;
+  }
+
+
   // else
   //   y = y+(cos((float)i/(float)rate*2.*PI))*0xFFF/2.*((float)x/((float)0xFFF/2.));
 
@@ -216,36 +228,38 @@ tuple<int, int, int> HSVtoRGB(float H, float S,float V){
       r = C,g = 0,b = X;
   }
 
-	return make_tuple(r,g,b);
+  return make_tuple(r,g,b);
 }
 
 tuple<int, int> genSin(int j){
-	int x;
-	int y;
-	if (j < PTS_MID){
-		y = 0xFFF *.5* ( sin (2 * 3.14159 * 10 * (float)j/(float)PTS_MID + 0)/2.+.5);
-		x = j * 0xFFF / PTS_MID;
-	} else {
-		y = 0xFFF *.5* ( sin (2 * 3.14159 * 10 * (float)(j % PTS_MID)/(float)PTS_MID + 3.14159)/2.+.5);
-		x = 0xFFF - ((j - PTS_MID) * 0xFFF / PTS_MID);
-	}
-	return make_tuple(x,y);
+  int x;
+  int y;
+  if (j < PTS_MID){
+  y = 0xFFF *.5* ( sin (2 * 3.14159 * 10 * (float)j/(float)PTS_MID + 0)/2.+.5);
+  x = j * 0xFFF / PTS_MID;
+  } else {
+  y = 0xFFF *.5* ( sin (2 * 3.14159 * 10 * (float)(j % PTS_MID)/(float)PTS_MID + 3.14159)/2.+.5);
+  x = 0xFFF - ((j - PTS_MID) * 0xFFF / PTS_MID);
+  }
+  return make_tuple(x,y);
 }
 
-tuple<int, int> genCircle(int i, int j){
-	int x;
-	int y;
-	y = 0xFFF * ( sin (2 * 3.14159 * 1 * (float)j/(float)PTS_SQ + 3.14159)/2.*(abs((float)(FRAMES/2-i))/(float)(FRAMES/2))+.5);
-	x = 0xFFF * ( cos (2 * 3.14159 * 1 * (float)j/(float)PTS_SQ + 3.14159)/2.*(abs((float)(FRAMES/2-i))/(float)(FRAMES/2))+.5);
-	return make_tuple(x,y);
+tuple<int, int> genCircle(int j){
+  int x;
+  int y;
+  // y = 0xFFF * ( sin (2 * 3.14159 * 1 * (float)j/(float)PTS_SQ + 3.14159)/2.*(abs((float)(FRAMES/2-i))/(float)(FRAMES/2))+.5);
+  // x = 0xFFF * ( cos (2 * 3.14159 * 1 * (float)j/(float)PTS_SQ + 3.14159)/2.*(abs((float)(FRAMES/2-i))/(float)(FRAMES/2))+.5);
+  y = 0xFFF * ( sin (2 * 3.14159 * 1 * (float)j/(float)PTS_SQ + 3.14159)/2.+.5);
+  x = 0xFFF * ( cos (2 * 3.14159 * 1 * (float)j/(float)PTS_SQ + 3.14159)/2.+.5);
+  return make_tuple(x,y);
 }
 
 tuple<int, int> offset(int i, int j){
-	int x;
-	int y;
-	y = 0xFFF * ( sin (2. * 3.14159 * 5. * (float)j/(float)PTS_SQ + 3.14159)/2.+.5);
-	x = 0xFFF * ( cos (2. * 3.14159 * (5.*(1.5-abs((float)(i-FRAMES/2)/(float)(FRAMES/2)))) * (float)j/(float)PTS_SQ + 3.14159)/2.+.5);
-	return make_tuple(x,y);
+  int x;
+  int y;
+  y = 0xFFF * ( sin (2. * 3.14159 * 5. * (float)j/(float)PTS_SQ + 3.14159)/2.+.5);
+  x = 0xFFF * ( cos (2. * 3.14159 * (5.*(1.5-abs((float)(i-FRAMES/2)/(float)(FRAMES/2)))) * (float)j/(float)PTS_SQ + 3.14159)/2.+.5);
+  return make_tuple(x,y);
 }
 
 double getAvg(float* freq_arr, int lastIdx, int newIdx)
@@ -264,17 +278,17 @@ double getAvg(float* freq_arr, int lastIdx, int newIdx)
 
 void getFrames(int loopCount)
 {
-	//make frames
-	int x = 0;
-	int y = 0;
-	int r = 0;
-	int g = 0;
-	int b = 0;
+  //make frames
+  int x = 0;
+  int y = 0;
+  int r = 0;
+  int g = 0;
+  int b = 0;
   // bool graphFlag;
-	for (int i = 0; i < FRAMES; i++)
-	{
+  for (int i = 0; i < FRAMES; i++)
+  {
 
-		//y = i * 0xFFF / 30;
+    //y = i * 0xFFF / 30;
 
     // Spectrum Analysis
     float freq_arr[NUM_POINTS/2];
@@ -283,86 +297,106 @@ void getFrames(int loopCount)
     int lastIdx = 0;
     double magVal;
 
-		for (int j = 0; j < PTS_SQ; j++)
-		{
-			//tie(x,y) = genSin(j);
-			//tie(x,y) = genCircle(i, j);
-			//tie(x,y) = offset(i, j);
+    for (int j = 0; j < PTS_SQ; j++)
+    {
+    //tie(x,y) = genSin(j);
+    //tie(x,y) = genCircle(i, j);
+    //tie(x,y) = offset(i, j);
 
       // Spectrum Analysis
-
-      if (j < PTS_MID){
-        tie(r,g,b) = HSVtoRGB((int)((float)j/(float)PTS_MID*360.+loopCount*2.)%360, 100., 100.);
-        arrIdx = (int)(pow((float)j/(float)PTS_MID, E)*((float)(NUM_POINTS/2-BASS_OFFSET)))+BASS_OFFSET;
-        magVal = getAvg(freq_arr, lastIdx, arrIdx);
-        lastIdx = arrIdx;
-        y = (double)0xFFF * magVal;
-        // graphFlag = true;
-        //y = (double)0xFFF * freq_arr[arrIdx];
-        //y = 0;
-        // if (freq_arr[arrIdx] > 0.1)
-        //   cout << y << ','<< freq_arr[arrIdx] << endl;
-        x = j * 0xFFF / PTS_MID;
-      } else {
-        // graphFlag = false;
-        tie(r,g,b) = HSVtoRGB(360 - (int)((float)(j-PTS_MID)/(float)PTS_MID*360.+loopCount*2.)%360, 100., 100.);
-        // arrIdx = NUM_POINTS - (int)(float)(j-PTS_MID)/(float)PTS_MID*((float)NUM_POINTS);
-        // magVal = getAvg(freq_arr, lastIdx, arrIdx);
-        // lastIdx = arrIdx;
-        //y = (double) 0xFFF * magVal;
-        y = 0;
-        x = 0xFFF - ((j - PTS_MID) * 0xFFF / PTS_MID);
+      if (loopCount%2){
+        if(j>20){
+          if (j < PTS_MID){
+            tie(r,g,b) = HSVtoRGB((int)((float)j/(float)PTS_MID*360.+loopCount*2.)%360, 100., 100.);
+            arrIdx = (int)(pow((float)j/(float)PTS_MID, E)*((float)(NUM_POINTS/2-BASS_OFFSET)))+BASS_OFFSET;
+            magVal = getAvg(freq_arr, lastIdx, arrIdx);
+            lastIdx = arrIdx;
+            y = (double)0xFFF * magVal;
+            // graphFlag = true;
+            //y = (double)0xFFF * freq_arr[arrIdx];
+            //y = 0;
+            // if (freq_arr[arrIdx] > 0.1)
+            //   cout << y << ','<< freq_arr[arrIdx] << endl;
+            x = j * 0xFFF / PTS_MID;
+          } else {
+            // graphFlag = false;
+            tie(r,g,b) = HSVtoRGB(360 - (int)((float)(j-PTS_MID)/(float)PTS_MID*360.+loopCount*2.)%360, 100., 100.);
+            // arrIdx = NUM_POINTS - (int)(float)(j-PTS_MID)/(float)PTS_MID*((float)NUM_POINTS);
+            // magVal = getAvg(freq_arr, lastIdx, arrIdx);
+            // lastIdx = arrIdx;
+            //y = (double) 0xFFF * magVal;
+            y = 0;
+            x = 0xFFF - ((j - PTS_MID) * 0xFFF / PTS_MID);
+          }
+        }
+        else{
+          tie(r,g,b) = HSVtoRGB(1, 100., 0.);
+          y = 0;
+          x = 0;
+        }
+        tie(x, y) = rotateXY(x, y, loopCount, 800);
+        tie(x, y) = rescaleXY(x, y, loopCount, .7);
+      }
+      else{
+        if (j>20){
+          tie(r,g,b) = HSVtoRGB((int)((float)j/(float)PTS_MID*360.+loopCount*2.)%360, 100., 100.);
+          tie(x, y) = genCircle(j);
+        }
+        else{
+          tie(r,g,b) = HSVtoRGB(1, 100., 0.);
+          tie(x, y) = genCircle(0);
+        }
+        tie(x, y) = rotateXY(x, y, loopCount, 800, true);
+        tie(x, y) = rescaleXY(x, y, loopCount);
       }
 
       //tie(r,g,b) = HSVtoRGB((float)j/(float)PTS_SQ*360., 100., pow(abs((j%(int)((float)PTS_SQ/4.))-(int)((float)PTS_SQ/4.))/(float)(PTS_SQ/4.),.5)*100.);
 
-      tie(x, y) = rotateXY(x, y, loopCount, 800);
-      tie(x, y) = rescaleXY(x, y, loopCount);//, graphFlag);
-			frame[i][j].x = x;
-			frame[i][j].y = y;
-			frame[i][j].r = r;
-			frame[i][j].g = g;
-			frame[i][j].b = b;
-			// frame[i][j].r = 0xD0;
-			// frame[i][j].g = 0xFF;
-			// frame[i][j].b = 0xD0;
-			frame[i][j].i = 0xFF;
-		}
-	}
+      frame[i][j].x = x;
+      frame[i][j].y = y;
+      frame[i][j].r = r;
+      frame[i][j].g = g;
+      frame[i][j].b = b;
+      // frame[i][j].r = 0xD0;
+      // frame[i][j].g = 0xFF;
+      // frame[i][j].b = 0xD0;
+      frame[i][j].i = 0xFF;
+    }
+  }
 }
 
 int main(void)
 {
 
-	//connect to DACs and output frames
-	HeliosDac helios;
-	int numDevs = helios.OpenDevices();
+  //connect to DACs and output frames
+  HeliosDac helios;
+  int numDevs = helios.OpenDevices();
 
-	int i = 0;
+  int i = 0;
   for(int jj=0; jj<NUM_POINTS/2; ++jj)
     PREV_ARR[jj] = 0.;
-	while (1)
-	{
+  while (1)
+  {
     if(i%FRAMES==0)
       getFrames(i);
-		i++;
-		 // if (i > FRAMES * CYCLES) //cancel after 5 cycles, 30 frames each
-		 // 	break;
+  i++;
+   // if (i > FRAMES * CYCLES) //cancel after 5 cycles, 30 frames each
+   // 	break;
 
-		for (int j = 0; j < numDevs; j++)
-		{
-			//wait for ready status
-			for (unsigned int k = 0; k < 512; k++)
-			{
-				if (helios.GetStatus(j) == 1)
-					break;
-			}
-			//std::this_thread::sleep_for(std::chrono::milliseconds(PAUSE));
+  for (int j = 0; j < numDevs; j++)
+  {
+  //wait for ready status
+  for (unsigned int k = 0; k < 512; k++)
+  {
+  if (helios.GetStatus(j) == 1)
+  break;
+  }
+  //std::this_thread::sleep_for(std::chrono::milliseconds(PAUSE));
 
-			helios.WriteFrame(j, 30000, HELIOS_FLAGS_DEFAULT, &frame[i % FRAMES][0], PTS_SQ); //send the next frame
-		}
-	}
+  helios.WriteFrame(j, 30000, HELIOS_FLAGS_DEFAULT, &frame[i % FRAMES][0], PTS_SQ); //send the next frame
+  }
+  }
 
-	//freeing connection
-	helios.CloseDevices();
+  //freeing connection
+  helios.CloseDevices();
 }
