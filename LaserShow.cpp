@@ -71,7 +71,7 @@ tuple<int, int> rotateXY (int x, int y, int i, int rate, bool off90 = false){
     x = (x - 0xFFF/2) * (cos((float)i/(float)rate*2.*PI+PI)) + 0xFFF/2;
     // if (xStd < 0)
     y = y*(7./9.);
-    y = y+(cos((float)i/(float)rate*2.*PI+PI))*0xFFF/9.*((float)xStd/((float)0xFFF/2.));
+    y = y+(sin((float)i/(float)rate*2.*PI))*0xFFF/9.*((float)xStd/((float)0xFFF/2.));
     y = y + 0xFFF/9.;
   }
 
@@ -244,13 +244,13 @@ tuple<int, int> genSin(int j){
   return make_tuple(x,y);
 }
 
-tuple<int, int> genCircle(int j){
+tuple<int, int> genCircle(int j, double magVal){
   int x;
   int y;
   // y = 0xFFF * ( sin (2 * 3.14159 * 1 * (float)j/(float)PTS_SQ + 3.14159)/2.*(abs((float)(FRAMES/2-i))/(float)(FRAMES/2))+.5);
   // x = 0xFFF * ( cos (2 * 3.14159 * 1 * (float)j/(float)PTS_SQ + 3.14159)/2.*(abs((float)(FRAMES/2-i))/(float)(FRAMES/2))+.5);
-  y = 0xFFF * ( sin (2 * 3.14159 * 1 * (float)j/(float)PTS_SQ + 3.14159)/2.+.5);
-  x = 0xFFF * ( cos (2 * 3.14159 * 1 * (float)j/(float)PTS_SQ + 3.14159)/2.+.5);
+  y = magVal * ( sin (2 * 3.14159 * 1 * (float)j/(float)PTS_SQ + 3.14159)/2.+.5);
+  x = magVal * ( cos (2 * 3.14159 * 1 * (float)j/(float)PTS_SQ + 3.14159)/2.+.5);
   return make_tuple(x,y);
 }
 
@@ -340,11 +340,15 @@ void getFrames(int loopCount)
       else{
         if (j>20){
           tie(r,g,b) = HSVtoRGB((int)((float)j/(float)PTS_MID*360.+loopCount*2.)%360, 100., 100.);
-          tie(x, y) = genCircle(j);
+          // arrIdx = (int)(pow((float)j/(float)PTS_MID, E)*((float)(NUM_POINTS/2-BASS_OFFSET)))+BASS_OFFSET;
+          // magVal = getAvg(freq_arr, lastIdx, arrIdx);
+          // lastIdx = arrIdx;
+          tie(r,g,b) = HSVtoRGB((int)((float)j/(float)PTS_MID*360.+loopCount*2.)%360, 100., 100.);
+          tie(x, y) = genCircle(j, 0xFFF);//magVal);
         }
         else{
           tie(r,g,b) = HSVtoRGB(1, 100., 0.);
-          tie(x, y) = genCircle(0);
+          tie(x, y) = genCircle(0, 0xFFF/2);
         }
         tie(x, y) = rotateXY(x, y, loopCount, 800, true);
         tie(x, y) = rescaleXY(x, y, loopCount);
