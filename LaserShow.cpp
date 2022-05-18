@@ -9,22 +9,26 @@
 
 using namespace std;
 
-#define PTS_SQ 200
-#define PTS_MID (PTS_SQ/2)
-//#define FRAMES 2000
-#define FRAMES 1
-#define CYCLES 20
-#define PAUSE 100
-#define SCALE .9
+#define NUM_FRAMES 1
+#define SCALE .7
+#define BLANKING 20
+#define PTS_CLOVER 100
+#define PTS_PLOT 100
+#define PTS_PLOT_GRAPH (int)((float)PTS_PLOT * .8)
+#define PTS_PLOT_BASE (PTS_PLOT - PTS_PLOT_GRAPH)
+#define PTS_TOT (PTS_CLOVER + PTS_PLOT * 2)
+#define ROTATE_RATE 800
+
 #define E 2.71281
 #define PI 3.14159
 
 #include <fftw3.h>
 
 #define SAMPLE_RATE 8000
-#define NUM_POINTS 2048
+#define TOT_SAMPLES 1024
 #define BUFF_SZE 128
-#define BASS_OFFSET  (80.*(float)NUM_POINTS/(float)SAMPLE_RATE)
+#define BASS_CUTOFF_HZ 80.
+#define BASS_OFFSET  (BASS_CUTOFF_HZ*(float)TOT_SAMPLES/(float)SAMPLE_RATE)
 int ARR_END = 0;
 bool ARR_INIT = false;
 
@@ -36,9 +40,9 @@ bool ARR_INIT = false;
 #define REAL 0
 #define IMAG 1
 
-HeliosPoint frame[FRAMES][PTS_SQ];
+HeliosPoint frame[NUM_FRAMES][PTS_TOT];
 double MAX_MAG = 0;
-float PREV_ARR[NUM_POINTS/2];
+float PREV_ARR[TOT_SAMPLES/2];
 
 tuple<int, int> rescaleXY (int x, int y, int loopCount, float cusScale = SCALE){//, bool graphFlag){
   // float localScale = SCALE + (SCALE / (float)(loopCount%3+1)) / 2.;
@@ -54,32 +58,20 @@ tuple<int, int> rescaleXY (int x, int y, int loopCount, float cusScale = SCALE){
 
 tuple<int, int> rotateXY (int x, int y, int i, int rate, bool off90 = false){
   i = i%rate;
-  // if (i<rate/2)
-  //   x = (float)x * ((float)i/(float)(rate/2));
-  // else
-  //   x = (float)x * (1.-(float)(i-rate/2)/(float)(rate/2));
   int xStd = x - 0xFFF/2;
   int yStd = y - 0xFFF/2;
   if (off90){
     x = (x - 0xFFF/2) * (sin((float)i/(float)rate*2.*PI)) + 0xFFF/2;
-    // if (xStd < 0)
     y = y*(7./9.);
     y = y+(cos((float)i/(float)rate*2.*PI))*0xFFF/9.*((float)xStd/((float)0xFFF/2.));
     y = y + 0xFFF/9.;
   }
   else{
     x = (x - 0xFFF/2) * (cos((float)i/(float)rate*2.*PI+PI)) + 0xFFF/2;
-    // if (xStd < 0)
     y = y*(7./9.);
     y = y+(sin((float)i/(float)rate*2.*PI))*0xFFF/9.*((float)xStd/((float)0xFFF/2.));
     y = y + 0xFFF/9.;
   }
-
-
-  // else
-  //   y = y+(cos((float)i/(float)rate*2.*PI))*0xFFF/2.*((float)x/((float)0xFFF/2.));
-
-  //y = (float)(y - 0xFFF/2) * ((float)xStd/(float)0xFFF) + 0xFFF/2;
   return make_tuple(x,y);
 }
 
@@ -89,8 +81,8 @@ tuple<int, int> rotateXY (int x, int y, int i, int rate, bool off90 = false){
 //      */
 //
 //     int i;
-//     for (i = 0; i < NUM_POINTS; ++i) {
-//         double theta = (double)i / (double)NUM_POINTS * M_PI;
+//     for (i = 0; i < TOT_SAMPLES; ++i) {
+//         double theta = (double)i / (double)TOT_SAMPLES * M_PI;
 //
 //         signal[i][REAL] = 1.0 * cos(10.0 * theta) +
 //                           0.5 * cos(25.0 * theta);
@@ -103,7 +95,7 @@ tuple<int, int> rotateXY (int x, int y, int i, int rate, bool off90 = false){
 void get_stdin_audio(int* shift_sig, fftw_complex* signal){
   int pt;
   //int flags = fcntl(0, F_GETFL, 0);
-  //for (i = 0; i < NUM_POINTS; ++i) {
+  //for (i = 0; i < TOT_SAMPLES; ++i) {
   //streamsize chars_left;
   string line;
   // streambuf* cbuf;
@@ -118,17 +110,17 @@ void get_stdin_audio(int* shift_sig, fftw_complex* signal){
         getline(cin, line);
         sscanf(line.c_str(), "%d", &pt);
         shift_sig[ARR_END] = pt;
-        ARR_END = (ARR_END + 1) % NUM_POINTS;
+        ARR_END = (ARR_END + 1) % TOT_SAMPLES;
         if (!ARR_INIT)
           signal[i][IMAG] = 0;
-        if (ARR_END == NUM_POINTS-1)
+        if (ARR_END == TOT_SAMPLES-1)
           ARR_INIT = true;
         //chars_left = cbuf->in_avail();
     }
     //cin.clear();
   } while(!ARR_INIT);
-  for(int i=0; i<NUM_POINTS; ++i){
-    signal[i][REAL] = shift_sig[(ARR_END + i) % NUM_POINTS];
+  for(int i=0; i<TOT_SAMPLES; ++i){
+    signal[i][REAL] = shift_sig[(ARR_END + i) % TOT_SAMPLES];
     //cout << signal[i][REAL] << ',';
   }
   //cout << endl;
@@ -141,8 +133,8 @@ void do_something_with(fftw_complex* result, float* freq_arr) {
     int domFreq;
     double curAmp;
 
-    for (i = 0; i < NUM_POINTS/2; ++i) {
-      //arrOffset = (i+ARR_END) % NUM_POINTS;
+    for (i = 0; i < TOT_SAMPLES/2; ++i) {
+      //arrOffset = (i+ARR_END) % TOT_SAMPLES;
       //curAmp = result[arrOffset][REAL];
       curAmp = result[i][REAL];
       if (curAmp > maxAmp){
@@ -152,8 +144,8 @@ void do_something_with(fftw_complex* result, float* freq_arr) {
     }
     if (maxAmp > MAX_MAG)
       MAX_MAG = maxAmp;
-    for (i = 0; i < NUM_POINTS/2; ++i) {
-      // arrOffset = (i+ARR_END) % NUM_POINTS;
+    for (i = 0; i < TOT_SAMPLES/2; ++i) {
+      // arrOffset = (i+ARR_END) % TOT_SAMPLES;
       //curAmp = result[i][REAL] / maxAmp;
       curAmp = sqrt(result[i][REAL]) / 1400.;
       //curAmp = result[i][REAL] / MAX_MAG;
@@ -164,14 +156,14 @@ void do_something_with(fftw_complex* result, float* freq_arr) {
       else
         freq_arr[i] = 0.;
     }
-    for(int i=0; i<NUM_POINTS/2; ++i){
+    for(int i=0; i<TOT_SAMPLES/2; ++i){
       if (freq_arr[i] < PREV_ARR[i]){
         float diff = PREV_ARR[i] - freq_arr[i];
         freq_arr[i] = PREV_ARR[i] - diff*.05;
       }
       PREV_ARR[i] = freq_arr[i];
     }
-    // domFreq = (float) domFreq * ((float)SAMPLE_RATE / (float)NUM_POINTS);
+    // domFreq = (float) domFreq * ((float)SAMPLE_RATE / (float)TOT_SAMPLES);
     // if (domFreq > 60)
     //   cout << domFreq << ',' << maxAmp << endl;
 
@@ -181,11 +173,11 @@ void do_something_with(fftw_complex* result, float* freq_arr) {
 /* Resume reading here */
 
 void getFreqArr(float* freq_arr) {
-  int shift_sig[NUM_POINTS];
-  fftw_complex signal[NUM_POINTS];
-  fftw_complex result[NUM_POINTS];
+  int shift_sig[TOT_SAMPLES];
+  fftw_complex signal[TOT_SAMPLES];
+  fftw_complex result[TOT_SAMPLES];
 
-  fftw_plan plan = fftw_plan_dft_1d(NUM_POINTS,
+  fftw_plan plan = fftw_plan_dft_1d(TOT_SAMPLES,
                                     signal,
                                     result,
                                     FFTW_FORWARD,
@@ -231,38 +223,38 @@ tuple<int, int, int> HSVtoRGB(float H, float S,float V){
   return make_tuple(r,g,b);
 }
 
-tuple<int, int> genSin(int j){
-  int x;
-  int y;
-  if (j < PTS_MID){
-  y = 0xFFF *.5* ( sin (2 * 3.14159 * 10 * (float)j/(float)PTS_MID + 0)/2.+.5);
-  x = j * 0xFFF / PTS_MID;
-  } else {
-  y = 0xFFF *.5* ( sin (2 * 3.14159 * 10 * (float)(j % PTS_MID)/(float)PTS_MID + 3.14159)/2.+.5);
-  x = 0xFFF - ((j - PTS_MID) * 0xFFF / PTS_MID);
-  }
-  return make_tuple(x,y);
-}
+// tuple<int, int> genSin(int j){
+//   int x;
+//   int y;
+//   if (j < PTS_MID){
+//   y = 0xFFF *.5* ( sin (2 * 3.14159 * 10 * (float)j/(float)PTS_MID + 0)/2.+.5);
+//   x = j * 0xFFF / PTS_MID;
+//   } else {
+//   y = 0xFFF *.5* ( sin (2 * 3.14159 * 10 * (float)(j % PTS_MID)/(float)PTS_MID + 3.14159)/2.+.5);
+//   x = 0xFFF - ((j - PTS_MID) * 0xFFF / PTS_MID);
+//   }
+//   return make_tuple(x,y);
+// }
 
-tuple<int, int> genCircle(int j){//, double magVal=(double)0xFFF){
-  int x;
-  int y;
-  // y = 0xFFF * ( sin (2 * 3.14159 * 1 * (float)j/(float)PTS_SQ + 3.14159)/2.*(abs((float)(FRAMES/2-i))/(float)(FRAMES/2))+.5);
-  // x = 0xFFF * ( cos (2 * 3.14159 * 1 * (float)j/(float)PTS_SQ + 3.14159)/2.*(abs((float)(FRAMES/2-i))/(float)(FRAMES/2))+.5);
-  // y = (sin(2 * PI * 1 * (float)j/(float)PTS_SQ + PI)/2.*(0xFFF-magVal)+.5*0xFFF);
-  // x = (cos(2 * PI * 1 * (float)j/(float)PTS_SQ + PI)/2.*(0xFFF-magVal)+.5*0xFFF);
-  y = (sin(2 * PI * 1 * (float)j/(float)PTS_SQ + PI)/2.*0xFFF+.5*0xFFF);
-  x = (cos(2 * PI * 1 * (float)j/(float)PTS_SQ + PI)/2.*0xFFF+.5*0xFFF);
-  return make_tuple(x,y);
-}
+// tuple<int, int> genCircle(int j){//, double magVal=(double)0xFFF){
+//   int x;
+//   int y;
+//   // y = 0xFFF * ( sin (2 * 3.14159 * 1 * (float)j/(float)PTS_TOT + 3.14159)/2.*(abs((float)(FRAMES/2-i))/(float)(FRAMES/2))+.5);
+//   // x = 0xFFF * ( cos (2 * 3.14159 * 1 * (float)j/(float)PTS_TOT + 3.14159)/2.*(abs((float)(FRAMES/2-i))/(float)(FRAMES/2))+.5);
+//   // y = (sin(2 * PI * 1 * (float)j/(float)PTS_TOT + PI)/2.*(0xFFF-magVal)+.5*0xFFF);
+//   // x = (cos(2 * PI * 1 * (float)j/(float)PTS_TOT + PI)/2.*(0xFFF-magVal)+.5*0xFFF);
+//   y = (sin(2 * PI * 1 * (float)j/(float)PTS_TOT + PI)/2.*0xFFF+.5*0xFFF);
+//   x = (cos(2 * PI * 1 * (float)j/(float)PTS_TOT + PI)/2.*0xFFF+.5*0xFFF);
+//   return make_tuple(x,y);
+// }
 
-tuple<int, int> offset(int i, int j){
-  int x;
-  int y;
-  y = 0xFFF * ( sin (2. * 3.14159 * 5. * (float)j/(float)PTS_SQ + 3.14159)/2.+.5);
-  x = 0xFFF * ( cos (2. * 3.14159 * (5.*(1.5-abs((float)(i-FRAMES/2)/(float)(FRAMES/2)))) * (float)j/(float)PTS_SQ + 3.14159)/2.+.5);
-  return make_tuple(x,y);
-}
+// tuple<int, int> offset(int i, int j){
+//   int x;
+//   int y;
+//   y = 0xFFF * ( sin (2. * 3.14159 * 5. * (float)j/(float)PTS_TOT + 3.14159)/2.+.5);
+//   x = 0xFFF * ( cos (2. * 3.14159 * (5.*(1.5-abs((float)(i-FRAMES/2)/(float)(FRAMES/2)))) * (float)j/(float)PTS_TOT + 3.14159)/2.+.5);
+//   return make_tuple(x,y);
+// }
 
 double getAvg(float* freq_arr, int lastIdx, int newIdx)
 {
@@ -281,9 +273,9 @@ double getAvg(float* freq_arr, int lastIdx, int newIdx)
 void genGraph(int i, int loopCount, float* freq_arr, int& lastIdx, int& x, int& y, int& r, int& g, int& b){
   int arrIdx;
   double magVal;
-  if (i < PTS_MID){
-    tie(r,g,b) = HSVtoRGB((int)((float)i/(float)PTS_MID*360.+loopCount*2.)%360, 100., 100.);
-    arrIdx = (int)(pow((float)i/(float)PTS_MID, E)*((float)(NUM_POINTS/2-BASS_OFFSET)))+BASS_OFFSET;
+  if (i < PTS_PLOT_GRAPH){
+    tie(r,g,b) = HSVtoRGB((int)((float)i/(float)PTS_PLOT_GRAPH*360.+loopCount*2.)%360, 100., 100.);
+    arrIdx = (int)(pow((float)i/(float)PTS_PLOT_GRAPH, E)*((float)(TOT_SAMPLES/2-BASS_OFFSET)))+BASS_OFFSET;
     magVal = getAvg(freq_arr, lastIdx, arrIdx);
     lastIdx = arrIdx;
     y = (double)0xFFF * magVal;
@@ -292,26 +284,29 @@ void genGraph(int i, int loopCount, float* freq_arr, int& lastIdx, int& x, int& 
     //y = 0;
     // if (freq_arr[arrIdx] > 0.1)
     //   cout << y << ','<< freq_arr[arrIdx] << endl;
-    x = i * 0xFFF / PTS_MID;
+    x = i * 0xFFF / PTS_PLOT_GRAPH;
   } else {
     // graphFlag = false;
-    tie(r,g,b) = HSVtoRGB(360 - (int)((float)(i-PTS_MID)/(float)PTS_MID*360.+loopCount*2.)%360, 100., 100.);
-    // arrIdx = NUM_POINTS - (int)(float)(i-PTS_MID)/(float)PTS_MID*((float)NUM_POINTS);
+    tie(r,g,b) = HSVtoRGB(360 - (int)((float)(i-PTS_PLOT_GRAPH)/(float)PTS_PLOT_BASE*360.+loopCount*2.)%360, 100., 100.);
+    // arrIdx = TOT_SAMPLES - (int)(float)(i-PTS_PLOT_BASE)/(float)PTS_PLOT_BASE*((float)TOT_SAMPLES);
     // magVal = getAvg(freq_arr, lastIdx, arrIdx);
     // lastIdx = arrIdx;
     //y = (double) 0xFFF * magVal;
     y = 0;
-    x = 0xFFF - ((i - PTS_MID) * 0xFFF / PTS_MID);
+    x = 0xFFF - ((i - PTS_PLOT_GRAPH) * 0xFFF / PTS_PLOT_BASE);
   }
 }
 
-
 void genClover(int i, int loopCount, int rate, int& x, int& y, int& r, int& g, int& b){
-  float rad = cos(2 * PI * 4 * (float)i/(float)PTS_SQ + (float)loopCount/(float)rate*8.*PI)/2.*.7 + .3 +.5;//cos(2* PI *(float)i/(float)PTS_SQ)/2.+1.;
+  float rad = cos(2 * PI * 4 * (float)i/(float)PTS_CLOVER + (float)loopCount/(float)rate*8.*PI)/2.*.7 + .3 +.5;//cos(2* PI *(float)i/(float)PTS_CLOVER)/2.+1.;
   //rad = sin((float)i/(float)rate*2.*PI);
-  y = (sin(2 * PI * 1 * (float)i/(float)PTS_SQ)/2.*0xFFF*rad*.2+.1*0xFFF);
-  x = (cos(2 * PI * 1 * (float)i/(float)PTS_SQ)/2.*0xFFF*rad+.5*0xFFF);
-  tie(r,g,b) = HSVtoRGB((int)((float)i/(float)PTS_SQ*360.+loopCount*2.)%360, 100., 100.);
+  y = (sin(2 * PI * 1 * (float)i/(float)PTS_CLOVER)/2.*0xFFF*rad*.2+.1*0xFFF);
+  x = (cos(2 * PI * 1 * (float)i/(float)PTS_CLOVER)/2.*0xFFF*rad+.5*0xFFF);
+  tie(r,g,b) = HSVtoRGB((int)((float)i/(float)PTS_CLOVER*360.+loopCount*2.)%360, 100., 100.);
+}
+
+int interpBlanking(int i, int maxFrames){
+  return i * ((float)maxFrames/(maxFrames - BLANKING)) - BLANKING;
 }
 
 void getFrames(int loopCount)
@@ -322,66 +317,55 @@ void getFrames(int loopCount)
   int r = 0;
   int g = 0;
   int b = 0;
-  // bool graphFlag;
-  for (int i = 0; i < FRAMES; i++)
-  {
-
-    //y = i * 0xFFF / 30;
-
-    // Spectrum Analysis
-    float freq_arr[NUM_POINTS/2];
+  int lastIdx;
+  int locIter;
+  float freq_arr[TOT_SAMPLES/2];
+  for (int i = 0; i < NUM_FRAMES; i++) {
+    loopCount = loopCount + i;
     getFreqArr(freq_arr);
-    int arrIdx;
-    int lastIdx = 0;
+    lastIdx = 0;
+    locIter = 0;
 
-    for (int j = 0; j < PTS_SQ; j++)
+    for (int j = 0; j < PTS_TOT; j++)
     {
-    //tie(x,y) = genSin(j);
-    //tie(x,y) = genCircle(i, j);
-    //tie(x,y) = offset(i, j);
-
       // Spectrum Analysis
-      if (loopCount%3 == 0){
-        if(j>20){
-          genGraph(j, loopCount, freq_arr, lastIdx, x, y, r, g, b);
-        }else{
-          tie(r,g,b) = HSVtoRGB(1, 100., 0.);
-          y = 0;
-          x = 0;
+      if (j < PTS_PLOT * 2){
+        if (j == PTS_PLOT){
+          locIter = 0;
+          lastIdx = 0;
         }
-        tie(x, y) = rotateXY(x, y, loopCount, 800);
-        tie(x, y) = rescaleXY(x, y, loopCount);
-      }
-      else if (loopCount%3 == 1){
-        if (j>20){
-          genGraph(j, loopCount, freq_arr, lastIdx, x, y, r, g, b);
-          //tie(r,g,b) = HSVtoRGB((int)((float)j/(float)PTS_SQ*360.+loopCount*2.)%360, 100., 100.);
-          //tie(x, y) = genCircle(j);
+        if (locIter > BLANKING){
+          genGraph(interpBlanking(locIter, PTS_PLOT), loopCount, freq_arr, lastIdx, x, y, r, g, b);
         }
         else{
           tie(r,g,b) = HSVtoRGB(1, 100., 0.);
-          // tie(x, y) = genCircle(0);
           y = 0;
           x = 0;
         }
-        tie(x, y) = rotateXY(x, y, loopCount, 800, true);
+        tie(x, y) = rotateXY(x, y, loopCount, ROTATE_RATE, (j >= PTS_PLOT));
         tie(x, y) = rescaleXY(x, y, loopCount);
       }
       else{
-        genClover(j, loopCount, 800, x, y, r, g, b);
+        if (j == PTS_PLOT * 2)
+          locIter = 0;
+        if (locIter>BLANKING){
+          genClover(interpBlanking(locIter, PTS_CLOVER), loopCount, ROTATE_RATE, x, y, r, g, b);
+        }
+        else{
+          genClover(0, loopCount, ROTATE_RATE, x, y, r, g, b);
+          tie(r,g,b) = HSVtoRGB(1, 100., 0.);
+        }
         tie(x, y) = rescaleXY(x, y, loopCount);
       }
+      locIter += 1;
 
-      //tie(r,g,b) = HSVtoRGB((float)j/(float)PTS_SQ*360., 100., pow(abs((j%(int)((float)PTS_SQ/4.))-(int)((float)PTS_SQ/4.))/(float)(PTS_SQ/4.),.5)*100.);
+      //tie(r,g,b) = HSVtoRGB((float)j/(float)PTS_TOT*360., 100., pow(abs((j%(int)((float)PTS_TOT/4.))-(int)((float)PTS_TOT/4.))/(float)(PTS_TOT/4.),.5)*100.);
 
       frame[i][j].x = x;
       frame[i][j].y = y;
       frame[i][j].r = r;
       frame[i][j].g = g;
       frame[i][j].b = b;
-      // frame[i][j].r = 0xD0;
-      // frame[i][j].g = 0xFF;
-      // frame[i][j].b = 0xD0;
       frame[i][j].i = 0xFF;
     }
   }
@@ -395,30 +379,32 @@ int main(void)
   int numDevs = helios.OpenDevices();
 
   int i = 0;
-  for(int jj=0; jj<NUM_POINTS/2; ++jj)
+  int loopCount = 0;
+
+  for(int jj=0; jj<TOT_SAMPLES/2; ++jj)
     PREV_ARR[jj] = 0.;
+
   while (1)
   {
-    if(i%FRAMES==0)
-      getFrames(i);
-  i++;
+    getFrames(loopCount);
+    i++;
+    loopCount = loopCount + NUM_FRAMES;
    // if (i > FRAMES * CYCLES) //cancel after 5 cycles, 30 frames each
    // 	break;
 
-  for (int j = 0; j < numDevs; j++)
-  {
-  //wait for ready status
-  for (unsigned int k = 0; k < 512; k++)
-  {
-  if (helios.GetStatus(j) == 1)
-  break;
-  }
-  //std::this_thread::sleep_for(std::chrono::milliseconds(PAUSE));
-
-  helios.WriteFrame(j, 30000, HELIOS_FLAGS_DEFAULT, &frame[i % FRAMES][0], PTS_SQ); //send the next frame
-  }
+    for (int j = 0; j < numDevs; j++)
+    {
+    //wait for ready status
+      for (unsigned int k = 0; k < 512; k++)
+      {
+        if (helios.GetStatus(j) == 1)
+          break;
+        }
+        //std::this_thread::sleep_for(std::chrono::milliseconds(PAUSE));
+        helios.WriteFrame(j, 30000, HELIOS_FLAGS_DEFAULT, &frame[i % NUM_FRAMES][0], PTS_TOT); //send the next frame
+    }
   }
 
   //freeing connection
-  helios.CloseDevices();
+  // helios.CloseDevices();
 }
