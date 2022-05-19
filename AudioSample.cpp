@@ -16,8 +16,8 @@
 
 // ---------------------------------------------------------------------
 // Some constants:
-const double	SAMPLE_RATE			= 8000.0;
-const int		FRAMES_PER_BUFFER	= 16;
+const double	SAMPLE_RATE			= 12000.0;
+const int		FRAMES_PER_BUFFER	= 32;
 
 using namespace std;
 

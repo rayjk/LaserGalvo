@@ -15,8 +15,8 @@ using namespace std;
 #define SCALE 1.
 #define BLANKING 10
 #define PTS_CLOVER 100
-#define PTS_PLOT 100
-#define PTS_PLOT_GRAPH (int)((float)PTS_PLOT * .7)
+#define PTS_PLOT 150
+#define PTS_PLOT_GRAPH (int)((float)PTS_PLOT * .8)
 #define PTS_PLOT_BASE (PTS_PLOT - PTS_PLOT_GRAPH)
 #define PTS_TOT (PTS_CLOVER + PTS_PLOT * 2)
 #define ROTATE_RATE 800
@@ -26,9 +26,9 @@ using namespace std;
 
 #include <fftw3.h>
 
-#define SAMPLE_RATE 8000
+#define SAMPLE_RATE 12000
 #define TOT_SAMPLES 1024
-#define BUFF_SZE 32
+#define BUFF_SZE 64
 #define BASS_CUTOFF_HZ 80.
 #define BASS_OFFSET  (BASS_CUTOFF_HZ*(float)TOT_SAMPLES/(float)SAMPLE_RATE)
 
@@ -176,7 +176,7 @@ void do_something_with(fftw_complex* result, double* freq_arr) {
       if (freq_arr[i] < PREV_ARR[i]){
         double diff = PREV_ARR[i] - freq_arr[i];
         // freq_arr[i] = PREV_ARR[i] - clamp(diff*.1, 0., .005);
-        freq_arr[i] = PREV_ARR[i] - diff*.03;
+        freq_arr[i] = PREV_ARR[i] - diff*.05;
       }
       PREV_ARR[i] = freq_arr[i];
     }
