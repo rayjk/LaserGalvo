@@ -14,6 +14,7 @@ using namespace std;
 #define MAX_OVER_FRAMES 512
 #define SCALE 1.
 #define BLANKING 10
+#define GRAPH_SHARP BLANKING
 #define PTS_CLOVER 100
 #define PTS_PLOT 150
 #define PTS_PLOT_GRAPH (int)((float)PTS_PLOT * .8)
@@ -136,81 +137,58 @@ double getAvg(fftw_complex* result, int lastIdx, int newIdx)
 }
 
 
-void do_something_with(fftw_complex* result, double* freq_arr) {
-    int i;
-    int arrOffset;
-    double maxAmp = 0.;
-    int domFreq;
-    double curAmp;
-    double globalMax = 1.;
-    int arrIdx;
-    int lastIdx = 0;
-    double magVal;
-
-    for (int i=0; i<PTS_PLOT_GRAPH; i++){
-      arrIdx = (int)(pow((float)i/(float)PTS_PLOT_GRAPH, E)*((float)(TOT_SAMPLES/2-BASS_OFFSET)))+BASS_OFFSET;
-      magVal = getAvg(result, lastIdx, arrIdx);
-      lastIdx = arrIdx;
-      magVal = pow(magVal, .7+(.3*((float)i/(float)PTS_PLOT_GRAPH)));
-      if (!(magVal>=0))
-        magVal = 1.;
-      if (magVal > maxAmp){
-        maxAmp = magVal;
-        domFreq = i;
-      }
-      freq_arr[i] = magVal;
-    }
-
-    PREV_MAXS[PREV_MAXS_END] = maxAmp;
-    PREV_MAXS_END = (PREV_MAXS_END+1) % MAX_OVER_FRAMES;
-    for (i = 0; i< MAX_OVER_FRAMES; ++i){
-      if (PREV_MAXS[i] > globalMax)
-        globalMax = PREV_MAXS[i];
-    }
-
-    for (i = 0; i < PTS_PLOT_GRAPH; ++i) {
-      // arrOffset = (i+ARR_END) % TOT_SAMPLES;
-      //curAmp = result[i][REAL] / maxAmp;
-      freq_arr[i] = freq_arr[i] / globalMax;
-      //curAmp = result[i][REAL] / MAX_MAG;
-      if (freq_arr[i] < PREV_ARR[i]){
-        double diff = PREV_ARR[i] - freq_arr[i];
-        // freq_arr[i] = PREV_ARR[i] - clamp(diff*.1, 0., .005);
-        freq_arr[i] = PREV_ARR[i] - diff*.05;
-      }
-      PREV_ARR[i] = freq_arr[i];
-    }
-    // domFreq = (float) domFreq * ((float)SAMPLE_RATE / (float)TOT_SAMPLES);
-    // if (domFreq > 60)
-    //   cout << domFreq << ',' << maxAmp << endl;
-
-}
-
-
-/* Resume reading here */
-
 void getFreqArr(double* freq_arr) {
   fftw_complex result[TOT_SAMPLES];
-
+  int i;
+  int arrOffset;
+  double maxAmp = 0.;
+  int domFreq;
+  double curAmp;
+  double globalMax = 1.;
+  int arrIdx;
+  int lastIdx = 0;
+  double magVal;
   fftw_plan plan = fftw_plan_dft_1d(TOT_SAMPLES,
                                     SIGNAL,
                                     result,
                                     FFTW_FORWARD,
                                     FFTW_ESTIMATE);
-
-  //acquire_from_somewhere(SIGNAL);
-  // auto start = chrono::high_resolution_clock::now();
-  // get_stdin_audio(SHIFT_SIG, SIGNAL);
-  // auto stop = chrono::high_resolution_clock::now();
-  // latencySum = latencySum + (chrono::duration_cast<std::chrono::milliseconds>(stop - start)).count();
-  // latencyCount++;
-  // if (latencyCount%100 == 0){
-  //   cout << "Buffer Latency (ms): " << latencySum / 100. << endl;
-  //   latencySum = 0;
-  //   latencyCount = 0;
-  // }
   fftw_execute(plan);
-  do_something_with(result, freq_arr);
+
+
+  for (int i=0; i<PTS_PLOT_GRAPH; i++){
+    arrIdx = (int)(pow((float)i/(float)PTS_PLOT_GRAPH, E)*((float)(TOT_SAMPLES/2-BASS_OFFSET)))+BASS_OFFSET;
+    magVal = getAvg(result, lastIdx, arrIdx);
+    lastIdx = arrIdx;
+    magVal = pow(magVal, .7+(.3*((float)i/(float)PTS_PLOT_GRAPH)));
+    if (!(magVal>=0))
+      magVal = 1.;
+    if (magVal > maxAmp){
+      maxAmp = magVal;
+      domFreq = i;
+    }
+    freq_arr[i] = magVal;
+  }
+
+  PREV_MAXS[PREV_MAXS_END] = maxAmp;
+  PREV_MAXS_END = (PREV_MAXS_END+1) % MAX_OVER_FRAMES;
+  for (i = 0; i< MAX_OVER_FRAMES; ++i){
+    if (PREV_MAXS[i] > globalMax)
+      globalMax = PREV_MAXS[i];
+  }
+
+  for (i = 0; i < PTS_PLOT_GRAPH; ++i) {
+    // arrOffset = (i+ARR_END) % TOT_SAMPLES;
+    //curAmp = result[i][REAL] / maxAmp;
+    freq_arr[i] = freq_arr[i] / globalMax;
+    //curAmp = result[i][REAL] / MAX_MAG;
+    if (freq_arr[i] < PREV_ARR[i]){
+      double diff = PREV_ARR[i] - freq_arr[i];
+      // freq_arr[i] = PREV_ARR[i] - clamp(diff*.1, 0., .005);
+      freq_arr[i] = PREV_ARR[i] - diff*.05;
+    }
+    PREV_ARR[i] = freq_arr[i];
+  }
   fftw_destroy_plan(plan);
 }
 
@@ -285,19 +263,23 @@ void genGraph(int i, int loopCount, double* freq_arr, int& lastIdx, int& x, int&
   int arrIdx;
   double magVal;
   if (i < PTS_PLOT_GRAPH){
-    tie(r,g,b) = HSVtoRGB((int)((float)i/(float)PTS_PLOT_GRAPH*360.+loopCount*2.)%360, 100., 100.);
     magVal = freq_arr[i];
-    y = (double)0xFFF * magVal;
-    // graphFlag = true;
-    //y = (double)0xFFF * freq_arr[arrIdx];
-    //y = 0;
-    // if (freq_arr[arrIdx] > 0.1)
-    //   cout << y << ','<< freq_arr[arrIdx] << endl;
-    x = i * 0xFFF / (PTS_PLOT_GRAPH-2);
+    if (i > PTS_PLOT_GRAPH - GRAPH_SHARP){
+      y = 0;
+      x = 0xFFF;
+      //y = (double)0xFFF * magVal * ((double)(BLANKING - (i - PTS_PLOT_GRAPH)) / (double)BLANKING);
+    }else{
+      y = (double)0xFFF * magVal;
+      x = i * 0xFFF / (PTS_PLOT_GRAPH-2);
+    }
+
+    //double cVal = clamp((log(magVal+.068)/E+1.)*.95 *1.5 * 100., 0., 100.);
+    tie(r,g,b) = HSVtoRGB((int)((float)i/(float)PTS_PLOT_GRAPH*360.+loopCount*2.)%360, 100., 100.);
+
 
   } else {
     // graphFlag = false;
-    tie(r,g,b) = HSVtoRGB(360 - (int)((float)(i-PTS_PLOT_GRAPH)/(float)(PTS_PLOT_BASE-1)*360.+loopCount*2.)%360, 100., 100.);
+    tie(r,g,b) = HSVtoRGB((int)((float)(i-PTS_PLOT_GRAPH)/(float)(PTS_PLOT_BASE-1)*360.+loopCount*2.)%360, 100., 100.);
     // arrIdx = TOT_SAMPLES - (int)(float)(i-PTS_PLOT_BASE)/(float)PTS_PLOT_BASE*((float)TOT_SAMPLES);
     // magVal = getAvg(freq_arr, lastIdx, arrIdx);
     // lastIdx = arrIdx;
@@ -315,7 +297,7 @@ void genClover(int i, int loopCount, int rate, int& x, int& y, int& r, int& g, i
   //rad = sin((float)i/(float)rate*2.*PI);
   y = (sin(PI/-2. + 2 * PI * 1 * (float)i/(float)(PTS_CLOVER-1) - 2.*(float)loopCount/(float)rate*PI)/2.*0xFFF*rad*.25+.1*0xFFF);
   x = (cos(PI/-2. + 2 * PI * 1 * (float)i/(float)(PTS_CLOVER-1) - 2.*(float)loopCount/(float)rate*PI)/2.*0xFFF*rad+.5*0xFFF);
-  tie(r,g,b) = HSVtoRGB((int)((float)i/(float)(PTS_CLOVER-1)*360.+loopCount*2.)%360, 100., 100.);
+  tie(r,g,b) = HSVtoRGB((int)((float)i/(float)(PTS_CLOVER-1)*360.*2.+loopCount*2.)%360, 100., 100.);
 }
 
 int interpBlanking(int i, int maxFrames){
