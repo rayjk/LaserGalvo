@@ -390,6 +390,8 @@ int main(void)
   long int latencySum;
   int latencyCount = 0;
   int readCount = 0;
+  int numLatency = 0;
+  float avgLatency;
   float fps;
   bool frameSuccess = false;
 
@@ -398,7 +400,7 @@ int main(void)
   for(int kk=0; kk<MAX_OVER_FRAMES; ++kk)
     PREV_MAXS[kk] = 1.;
 
-  auto start = chrono::high_resolution_clock::now();
+  auto startFrame = chrono::high_resolution_clock::now();
   while (1)
   {
     i++;
@@ -410,10 +412,10 @@ int main(void)
     {
     //wait for ready status
       do {
-        auto start = chrono::high_resolution_clock::now();
+        auto startBuf = chrono::high_resolution_clock::now();
         get_stdin_audio();
-        auto stop = chrono::high_resolution_clock::now();
-        latencySum = latencySum + (chrono::duration_cast<std::chrono::milliseconds>(stop - start)).count();
+        auto stopBuf = chrono::high_resolution_clock::now();
+        latencySum = latencySum + (chrono::duration_cast<std::chrono::milliseconds>(stopBuf - startBuf)).count();
         latencyCount++;
         readCount++;
         if (latencyCount%100 == 0){
@@ -421,9 +423,12 @@ int main(void)
             helios.CloseDevices();
             helios.OpenDevices();
             cout << "Reinitializing DAC" << endl;
+            startFrame = chrono::high_resolution_clock::now();
           }
-          else
-            cout << "Avg buffer latency (ms): " << latencySum / 100. << endl;
+          else{
+            avgLatency = avgLatency + (float)latencySum / 100.;
+            numLatency++;
+          }
           latencySum = 0;
           latencyCount = 0;
         }
@@ -433,12 +438,15 @@ int main(void)
       helios.WriteFrame(j, PPS, HELIOS_FLAGS_DEFAULT, &frame[i % NUM_FRAMES][0], PTS_TOT); //send the next frame
       frameSuccess = true;
       if (i%100 == 0){
-        auto stop = chrono::high_resolution_clock::now();
-        fps = 100./((chrono::duration_cast<std::chrono::milliseconds>(stop - start)).count()/1000.);
+        auto stopFrame = chrono::high_resolution_clock::now();
+        fps = 100./((chrono::duration_cast<std::chrono::milliseconds>(stopFrame - startFrame)).count()/1000.);
+        startFrame = chrono::high_resolution_clock::now();
         cout << "Avg buffer reads per frame: "  << readCount / 100. << endl;
-        cout << "FPS: " << fps << endl;
+        cout << "Avg buffer latency (ms): " << avgLatency / (float)numLatency << endl;
+        cout << "FPS: " << fps << endl << endl;
+        avgLatency = 0;
         readCount = 0;
-        start = chrono::high_resolution_clock::now();
+        numLatency = 0;
       }
     }
   }
