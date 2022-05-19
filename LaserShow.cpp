@@ -10,11 +10,13 @@
 using namespace std;
 
 #define NUM_FRAMES 1
-#define SCALE .7
-#define BLANKING 20
+#define PPS 20000
+#define MAX_OVER_FRAMES 512
+#define SCALE 1.
+#define BLANKING 10
 #define PTS_CLOVER 100
 #define PTS_PLOT 100
-#define PTS_PLOT_GRAPH (int)((float)PTS_PLOT * .8)
+#define PTS_PLOT_GRAPH (int)((float)PTS_PLOT * .7)
 #define PTS_PLOT_BASE (PTS_PLOT - PTS_PLOT_GRAPH)
 #define PTS_TOT (PTS_CLOVER + PTS_PLOT * 2)
 #define ROTATE_RATE 800
@@ -26,11 +28,10 @@ using namespace std;
 
 #define SAMPLE_RATE 8000
 #define TOT_SAMPLES 1024
-#define BUFF_SZE 128
+#define BUFF_SZE 32
 #define BASS_CUTOFF_HZ 80.
 #define BASS_OFFSET  (BASS_CUTOFF_HZ*(float)TOT_SAMPLES/(float)SAMPLE_RATE)
-int ARR_END = 0;
-bool ARR_INIT = false;
+
 
 /* Never mind this bit */
 
@@ -41,16 +42,28 @@ bool ARR_INIT = false;
 #define IMAG 1
 
 HeliosPoint frame[NUM_FRAMES][PTS_TOT];
-double MAX_MAG = 0;
-float PREV_ARR[TOT_SAMPLES/2];
+double PREV_ARR[PTS_PLOT_GRAPH];
+double PREV_MAXS[MAX_OVER_FRAMES];
+int PREV_MAXS_END = 0;
+double SHIFT_SIG[TOT_SAMPLES];
+int ARR_END = 0;
+bool ARR_INIT = false;
+
+fftw_complex SIGNAL[TOT_SAMPLES];
+
+
+//std::chrono::high_resolution_clock::time_point latencySum;
+
 
 tuple<int, int> rescaleXY (int x, int y, int loopCount, float cusScale = SCALE){//, bool graphFlag){
   // float localScale = SCALE + (SCALE / (float)(loopCount%3+1)) / 2.;
-  x = -1.*(float)(x - 0xFFF/2) * cusScale + 0xFFF/2;
+  x = -1.*(float)(x - 0xFFF/2)*.8 * cusScale + 0xFFF/2;
   // if (graphFlag)
   //   y = -1.*(float)(y * localScale - 0xFFF/2) * SCALE + 0xFFF/2;
   // else
   y = -1.*(float)(y - 0xFFF/2) * cusScale + 0xFFF/2;
+  if (x>0xFFF)
+    x=0xFFF;
   if (y>0xFFF)
     y=0xFFF;
   return make_tuple(x,y);
@@ -74,25 +87,7 @@ tuple<int, int> rotateXY (int x, int y, int i, int rate, bool off90 = false){
   }
   return make_tuple(x,y);
 }
-
-// void acquire_from_somewhere(fftw_complex* signal) {
-//     /* Generate two sine waves of different frequencies and
-//      * amplitudes.
-//      */
-//
-//     int i;
-//     for (i = 0; i < TOT_SAMPLES; ++i) {
-//         double theta = (double)i / (double)TOT_SAMPLES * M_PI;
-//
-//         signal[i][REAL] = 1.0 * cos(10.0 * theta) +
-//                           0.5 * cos(25.0 * theta);
-//
-//         signal[i][IMAG] = 1.0 * sin(10.0 * theta) +
-//                           0.5 * sin(25.0 * theta);
-//     }
-// }
-
-void get_stdin_audio(int* shift_sig, fftw_complex* signal){
+void get_stdin_audio(){
   int pt;
   //int flags = fcntl(0, F_GETFL, 0);
   //for (i = 0; i < TOT_SAMPLES; ++i) {
@@ -109,10 +104,10 @@ void get_stdin_audio(int* shift_sig, fftw_complex* signal){
     for (int i=0; i< BUFF_SZE; ++i){
         getline(cin, line);
         sscanf(line.c_str(), "%d", &pt);
-        shift_sig[ARR_END] = pt;
+        SHIFT_SIG[ARR_END] = pt;
         ARR_END = (ARR_END + 1) % TOT_SAMPLES;
         if (!ARR_INIT)
-          signal[i][IMAG] = 0;
+          SIGNAL[i][IMAG] = 0;
         if (ARR_END == TOT_SAMPLES-1)
           ARR_INIT = true;
         //chars_left = cbuf->in_avail();
@@ -120,46 +115,68 @@ void get_stdin_audio(int* shift_sig, fftw_complex* signal){
     //cin.clear();
   } while(!ARR_INIT);
   for(int i=0; i<TOT_SAMPLES; ++i){
-    signal[i][REAL] = shift_sig[(ARR_END + i) % TOT_SAMPLES];
-    //cout << signal[i][REAL] << ',';
+    SIGNAL[i][REAL] = SHIFT_SIG[(ARR_END + i) % TOT_SAMPLES];
+    //cout << SIGNAL[i][REAL] << ',';
   }
   //cout << endl;
 }
 
-void do_something_with(fftw_complex* result, float* freq_arr) {
+double getAvg(fftw_complex* result, int lastIdx, int newIdx)
+{
+  if (newIdx == 0)
+    return 0.;
+  double avg=0;
+  int count=0;
+  for(int i=lastIdx; i<=newIdx; ++i){
+    avg += abs(result[i][REAL]);
+    count++;
+  }
+  avg = avg / double(count);
+  return avg;
+}
+
+
+void do_something_with(fftw_complex* result, double* freq_arr) {
     int i;
     int arrOffset;
     double maxAmp = 0.;
     int domFreq;
     double curAmp;
+    double globalMax = 1.;
+    int arrIdx;
+    int lastIdx = 0;
+    double magVal;
 
-    for (i = 0; i < TOT_SAMPLES/2; ++i) {
-      //arrOffset = (i+ARR_END) % TOT_SAMPLES;
-      //curAmp = result[arrOffset][REAL];
-      curAmp = result[i][REAL];
-      if (curAmp > maxAmp){
-        maxAmp = curAmp;
+    for (int i=0; i<PTS_PLOT_GRAPH; i++){
+      arrIdx = (int)(pow((float)i/(float)PTS_PLOT_GRAPH, E)*((float)(TOT_SAMPLES/2-BASS_OFFSET)))+BASS_OFFSET;
+      magVal = getAvg(result, lastIdx, arrIdx);
+      lastIdx = arrIdx;
+      magVal = pow(magVal, .7+(.3*((float)i/(float)PTS_PLOT_GRAPH)));
+      if (!(magVal>=0))
+        magVal = 1.;
+      if (magVal > maxAmp){
+        maxAmp = magVal;
         domFreq = i;
       }
+      freq_arr[i] = magVal;
     }
-    if (maxAmp > MAX_MAG)
-      MAX_MAG = maxAmp;
-    for (i = 0; i < TOT_SAMPLES/2; ++i) {
+
+    PREV_MAXS[PREV_MAXS_END] = maxAmp;
+    PREV_MAXS_END = (PREV_MAXS_END+1) % MAX_OVER_FRAMES;
+    for (i = 0; i< MAX_OVER_FRAMES; ++i){
+      if (PREV_MAXS[i] > globalMax)
+        globalMax = PREV_MAXS[i];
+    }
+
+    for (i = 0; i < PTS_PLOT_GRAPH; ++i) {
       // arrOffset = (i+ARR_END) % TOT_SAMPLES;
       //curAmp = result[i][REAL] / maxAmp;
-      curAmp = sqrt(result[i][REAL]) / 1400.;
+      freq_arr[i] = freq_arr[i] / globalMax;
       //curAmp = result[i][REAL] / MAX_MAG;
-      if (curAmp >= 0.)
-        freq_arr[i] = curAmp;
-      else if (curAmp > 1.)
-        curAmp = 1.;
-      else
-        freq_arr[i] = 0.;
-    }
-    for(int i=0; i<TOT_SAMPLES/2; ++i){
       if (freq_arr[i] < PREV_ARR[i]){
-        float diff = PREV_ARR[i] - freq_arr[i];
-        freq_arr[i] = PREV_ARR[i] - diff*.05;
+        double diff = PREV_ARR[i] - freq_arr[i];
+        // freq_arr[i] = PREV_ARR[i] - clamp(diff*.1, 0., .005);
+        freq_arr[i] = PREV_ARR[i] - diff*.03;
       }
       PREV_ARR[i] = freq_arr[i];
     }
@@ -172,19 +189,26 @@ void do_something_with(fftw_complex* result, float* freq_arr) {
 
 /* Resume reading here */
 
-void getFreqArr(float* freq_arr) {
-  int shift_sig[TOT_SAMPLES];
-  fftw_complex signal[TOT_SAMPLES];
+void getFreqArr(double* freq_arr) {
   fftw_complex result[TOT_SAMPLES];
 
   fftw_plan plan = fftw_plan_dft_1d(TOT_SAMPLES,
-                                    signal,
+                                    SIGNAL,
                                     result,
                                     FFTW_FORWARD,
                                     FFTW_ESTIMATE);
 
-  //acquire_from_somewhere(signal);
-  get_stdin_audio(shift_sig, signal);
+  //acquire_from_somewhere(SIGNAL);
+  // auto start = chrono::high_resolution_clock::now();
+  // get_stdin_audio(SHIFT_SIG, SIGNAL);
+  // auto stop = chrono::high_resolution_clock::now();
+  // latencySum = latencySum + (chrono::duration_cast<std::chrono::milliseconds>(stop - start)).count();
+  // latencyCount++;
+  // if (latencyCount%100 == 0){
+  //   cout << "Buffer Latency (ms): " << latencySum / 100. << endl;
+  //   latencySum = 0;
+  //   latencyCount = 0;
+  // }
   fftw_execute(plan);
   do_something_with(result, freq_arr);
   fftw_destroy_plan(plan);
@@ -256,57 +280,52 @@ tuple<int, int, int> HSVtoRGB(float H, float S,float V){
 //   return make_tuple(x,y);
 // }
 
-double getAvg(float* freq_arr, int lastIdx, int newIdx)
-{
-  if (newIdx == 0)
-    return 0.;
-  double avg=0;
-  int count=0;
-  for(int i=lastIdx; i<=newIdx; ++i){
-    avg += freq_arr[i];
-    count++;
-  }
-  avg = avg / double(count);
-  return avg;
-}
 
-void genGraph(int i, int loopCount, float* freq_arr, int& lastIdx, int& x, int& y, int& r, int& g, int& b){
+void genGraph(int i, int loopCount, double* freq_arr, int& lastIdx, int& x, int& y, int& r, int& g, int& b){
   int arrIdx;
   double magVal;
   if (i < PTS_PLOT_GRAPH){
     tie(r,g,b) = HSVtoRGB((int)((float)i/(float)PTS_PLOT_GRAPH*360.+loopCount*2.)%360, 100., 100.);
-    arrIdx = (int)(pow((float)i/(float)PTS_PLOT_GRAPH, E)*((float)(TOT_SAMPLES/2-BASS_OFFSET)))+BASS_OFFSET;
-    magVal = getAvg(freq_arr, lastIdx, arrIdx);
-    lastIdx = arrIdx;
+    magVal = freq_arr[i];
     y = (double)0xFFF * magVal;
     // graphFlag = true;
     //y = (double)0xFFF * freq_arr[arrIdx];
     //y = 0;
     // if (freq_arr[arrIdx] > 0.1)
     //   cout << y << ','<< freq_arr[arrIdx] << endl;
-    x = i * 0xFFF / PTS_PLOT_GRAPH;
+    x = i * 0xFFF / (PTS_PLOT_GRAPH-2);
+
   } else {
     // graphFlag = false;
-    tie(r,g,b) = HSVtoRGB(360 - (int)((float)(i-PTS_PLOT_GRAPH)/(float)PTS_PLOT_BASE*360.+loopCount*2.)%360, 100., 100.);
+    tie(r,g,b) = HSVtoRGB(360 - (int)((float)(i-PTS_PLOT_GRAPH)/(float)(PTS_PLOT_BASE-1)*360.+loopCount*2.)%360, 100., 100.);
     // arrIdx = TOT_SAMPLES - (int)(float)(i-PTS_PLOT_BASE)/(float)PTS_PLOT_BASE*((float)TOT_SAMPLES);
     // magVal = getAvg(freq_arr, lastIdx, arrIdx);
     // lastIdx = arrIdx;
     //y = (double) 0xFFF * magVal;
     y = 0;
-    x = 0xFFF - ((i - PTS_PLOT_GRAPH) * 0xFFF / PTS_PLOT_BASE);
+    x = 0xFFF - (i - PTS_PLOT_GRAPH) * 0xFFF / (PTS_PLOT_BASE-1);
+    // if(i>PTS_PLOT)
+    //   cout << i << endl;
+
   }
 }
 
 void genClover(int i, int loopCount, int rate, int& x, int& y, int& r, int& g, int& b){
-  float rad = cos(2 * PI * 4 * (float)i/(float)PTS_CLOVER + (float)loopCount/(float)rate*8.*PI)/2.*.7 + .3 +.5;//cos(2* PI *(float)i/(float)PTS_CLOVER)/2.+1.;
+  float rad = cos(2 * PI * 4 * (float)i/(float)(PTS_CLOVER-1))/2.*.7 + .3/2. +.5;//cos(2* PI *(float)i/(float)PTS_CLOVER)/2.+1.;
   //rad = sin((float)i/(float)rate*2.*PI);
-  y = (sin(2 * PI * 1 * (float)i/(float)PTS_CLOVER)/2.*0xFFF*rad*.2+.1*0xFFF);
-  x = (cos(2 * PI * 1 * (float)i/(float)PTS_CLOVER)/2.*0xFFF*rad+.5*0xFFF);
-  tie(r,g,b) = HSVtoRGB((int)((float)i/(float)PTS_CLOVER*360.+loopCount*2.)%360, 100., 100.);
+  y = (sin(PI/-2. + 2 * PI * 1 * (float)i/(float)(PTS_CLOVER-1) - 2.*(float)loopCount/(float)rate*PI)/2.*0xFFF*rad*.25+.1*0xFFF);
+  x = (cos(PI/-2. + 2 * PI * 1 * (float)i/(float)(PTS_CLOVER-1) - 2.*(float)loopCount/(float)rate*PI)/2.*0xFFF*rad+.5*0xFFF);
+  tie(r,g,b) = HSVtoRGB((int)((float)i/(float)(PTS_CLOVER-1)*360.+loopCount*2.)%360, 100., 100.);
 }
 
 int interpBlanking(int i, int maxFrames){
-  return i * ((float)maxFrames/(maxFrames - BLANKING)) - BLANKING;
+  if (i == BLANKING+1)
+    return 0;
+  if (i > maxFrames - .6*BLANKING -1)
+    return maxFrames-1;
+  float factor = (float)maxFrames/(float)(maxFrames - 1.6*BLANKING);
+  i = (float)i * factor - BLANKING * factor;
+  return i;
 }
 
 void getFrames(int loopCount)
@@ -319,7 +338,7 @@ void getFrames(int loopCount)
   int b = 0;
   int lastIdx;
   int locIter;
-  float freq_arr[TOT_SAMPLES/2];
+  double freq_arr[PTS_PLOT_GRAPH];
   for (int i = 0; i < NUM_FRAMES; i++) {
     loopCount = loopCount + i;
     getFreqArr(freq_arr);
@@ -338,12 +357,16 @@ void getFrames(int loopCount)
           genGraph(interpBlanking(locIter, PTS_PLOT), loopCount, freq_arr, lastIdx, x, y, r, g, b);
         }
         else{
-          tie(r,g,b) = HSVtoRGB(1, 100., 0.);
+          tie(r,g,b) = HSVtoRGB(90, 100., 0.);
           y = 0;
           x = 0;
         }
+         if (j < PTS_PLOT)
+          x = (float)x *.85 + .075*(float)0xFFF;
+        else
+          x = (float)x *.9 + .05*(float)0xFFF;
         tie(x, y) = rotateXY(x, y, loopCount, ROTATE_RATE, (j >= PTS_PLOT));
-        tie(x, y) = rescaleXY(x, y, loopCount);
+
       }
       else{
         if (j == PTS_PLOT * 2)
@@ -353,10 +376,11 @@ void getFrames(int loopCount)
         }
         else{
           genClover(0, loopCount, ROTATE_RATE, x, y, r, g, b);
-          tie(r,g,b) = HSVtoRGB(1, 100., 0.);
+          tie(r,g,b) = HSVtoRGB(90, 100., 0.);
         }
-        tie(x, y) = rescaleXY(x, y, loopCount);
       }
+
+      tie(x, y) = rescaleXY(x, y, loopCount);
       locIter += 1;
 
       //tie(r,g,b) = HSVtoRGB((float)j/(float)PTS_TOT*360., 100., pow(abs((j%(int)((float)PTS_TOT/4.))-(int)((float)PTS_TOT/4.))/(float)(PTS_TOT/4.),.5)*100.);
@@ -381,12 +405,20 @@ int main(void)
   int i = 0;
   int loopCount = 0;
 
+  long int latencySum;
+  int latencyCount = 0;
+  int readCount = 0;
+  float fps;
+  bool frameSuccess = false;
+
   for(int jj=0; jj<TOT_SAMPLES/2; ++jj)
     PREV_ARR[jj] = 0.;
+  for(int kk=0; kk<MAX_OVER_FRAMES; ++kk)
+    PREV_MAXS[kk] = 1.;
 
+  auto start = chrono::high_resolution_clock::now();
   while (1)
   {
-    getFrames(loopCount);
     i++;
     loopCount = loopCount + NUM_FRAMES;
    // if (i > FRAMES * CYCLES) //cancel after 5 cycles, 30 frames each
@@ -395,13 +427,37 @@ int main(void)
     for (int j = 0; j < numDevs; j++)
     {
     //wait for ready status
-      for (unsigned int k = 0; k < 512; k++)
-      {
-        if (helios.GetStatus(j) == 1)
-          break;
+      do {
+        auto start = chrono::high_resolution_clock::now();
+        get_stdin_audio();
+        auto stop = chrono::high_resolution_clock::now();
+        latencySum = latencySum + (chrono::duration_cast<std::chrono::milliseconds>(stop - start)).count();
+        latencyCount++;
+        readCount++;
+        if (latencyCount%100 == 0){
+          if (!frameSuccess){
+            helios.CloseDevices();
+            helios.OpenDevices();
+            cout << "Reinitializing DAC" << endl;
+          }
+          else
+            cout << "Avg buffer latency (ms): " << latencySum / 100. << endl;
+          latencySum = 0;
+          latencyCount = 0;
         }
-        //std::this_thread::sleep_for(std::chrono::milliseconds(PAUSE));
-        helios.WriteFrame(j, 30000, HELIOS_FLAGS_DEFAULT, &frame[i % NUM_FRAMES][0], PTS_TOT); //send the next frame
+      } while (helios.GetStatus(j) != 1);
+      // helios.WriteFrame(j, PPS, HELIOS_FLAGS_DEFAULT | HELIOS_FLAGS_SINGLE_MODE, &frame[i % NUM_FRAMES][0], PTS_TOT); //send the next frame
+      getFrames(loopCount);
+      helios.WriteFrame(j, PPS, HELIOS_FLAGS_DEFAULT, &frame[i % NUM_FRAMES][0], PTS_TOT); //send the next frame
+      frameSuccess = true;
+      if (i%100 == 0){
+        auto stop = chrono::high_resolution_clock::now();
+        fps = 100./((chrono::duration_cast<std::chrono::milliseconds>(stop - start)).count()/1000.);
+        cout << "Avg buffer reads per frame: "  << readCount / 100. << endl;
+        cout << "FPS: " << fps << endl;
+        readCount = 0;
+        start = chrono::high_resolution_clock::now();
+      }
     }
   }
 

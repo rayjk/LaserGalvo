@@ -19,7 +19,7 @@
 // Some constants:
 const int		BEEP_SECONDS		= 1;
 const double	SAMPLE_RATE			= 8000.0;
-const int		FRAMES_PER_BUFFER	= 128;
+const int		FRAMES_PER_BUFFER	= 16;
 const int		TABLE_SIZE			= 200;
 
 using namespace std;
