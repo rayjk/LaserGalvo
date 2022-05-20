@@ -10,6 +10,7 @@
 using namespace std;
 
 #define DECAY .05
+#define FFT_AVG 4
 #define NUM_FRAMES 1
 #define PPS 20000
 #define MAX_OVER_FRAMES 512
@@ -32,7 +33,7 @@ using namespace std;
 #define TOT_SAMPLES 1024
 #define BUFF_SZE 64
 #define BASS_CUTOFF_HZ 80.
-#define BASS_OFFSET  (BASS_CUTOFF_HZ*(float)TOT_SAMPLES/(float)SAMPLE_RATE)
+#define BASS_OFFSET  (BASS_CUTOFF_HZ*(float)(TOT_SAMPLES/FFT_AVG)/(float)SAMPLE_RATE)
 
 
 /* Never mind this bit */
@@ -51,7 +52,7 @@ double SHIFT_SIG[TOT_SAMPLES];
 int ARR_END = 0;
 bool ARR_INIT = false;
 
-fftw_complex SIGNAL[TOT_SAMPLES];
+fftw_complex SIGNAL[FFT_AVG][TOT_SAMPLES/FFT_AVG];
 
 
 //std::chrono::high_resolution_clock::time_point latencySum;
@@ -109,16 +110,19 @@ void get_stdin_audio(){
         //cout << pt;
         SHIFT_SIG[ARR_END] = pt;
         ARR_END = (ARR_END + 1) % TOT_SAMPLES;
-        if (!ARR_INIT)
-          SIGNAL[i][IMAG] = 0;
-        if (ARR_END == TOT_SAMPLES-1)
+        if (!ARR_INIT){
+          for(int j=0; j<FFT_AVG; j++){
+            SIGNAL[j][i][IMAG] = 0;
+          }
+        }
+        if (ARR_END == (TOT_SAMPLES/FFT_AVG)-1)
           ARR_INIT = true;
         //chars_left = cbuf->in_avail();
     }
     //cin.clear();
   } while(!ARR_INIT);
   for(int i=0; i<TOT_SAMPLES; ++i){
-    SIGNAL[i][REAL] = SHIFT_SIG[(ARR_END + i) % TOT_SAMPLES];
+    SIGNAL[(int)i/(TOT_SAMPLES/FFT_AVG)][i%(TOT_SAMPLES/FFT_AVG)][REAL] = SHIFT_SIG[(ARR_END + i) % (TOT_SAMPLES/FFT_AVG)];
     //cout << SIGNAL[i][REAL] << ',';
   }
   //cout << endl;
@@ -130,6 +134,7 @@ double getAvg(fftw_complex* result, int lastIdx, int newIdx)
     return 0.;
   double avg=0;
   int count=0;
+
   for(int i=lastIdx; i<=newIdx; ++i){
     avg += abs(result[i][REAL]);
     count++;
@@ -149,22 +154,42 @@ void getFreqArr(double* freq_arr) {
   int arrIdx;
   int lastIdx = 0;
   double magVal;
-  fftw_complex result[TOT_SAMPLES];
-  fftw_plan plan = fftw_plan_dft_1d(TOT_SAMPLES,
-                                    SIGNAL,
-                                    result,
-                                    FFTW_FORWARD,
-                                    FFTW_ESTIMATE);
-  fftw_execute(plan);
+  fftw_complex result[FFT_AVG][TOT_SAMPLES/FFT_AVG];
+  fftw_plan plan[FFT_AVG];
+  for (int i=0; i<FFT_AVG; ++i){
+    if(i%2 == 0){
+      plan[i] = fftw_plan_dft_1d(TOT_SAMPLES/FFT_AVG,
+                                        SIGNAL[i],
+                                        result[i],
+                                        FFTW_FORWARD,
+                                        FFTW_ESTIMATE);
+    }
+    else{
+      plan[i] = fftw_plan_dft_1d(TOT_SAMPLES/FFT_AVG,
+                                        SIGNAL[i],
+                                        result[i],
+                                        FFTW_BACKWARD,
+                                        FFTW_ESTIMATE);
+    }
+
+    fftw_execute(plan[i]);
+  }
+
 
 
   for (int i=0; i<PTS_PLOT_GRAPH; i++){
-    arrIdx = (int)(pow((float)i/(float)PTS_PLOT_GRAPH, E)*((float)(TOT_SAMPLES/2-BASS_OFFSET)))+BASS_OFFSET;
-    magVal = getAvg(result, lastIdx, arrIdx);
+    arrIdx = (int)(pow((float)i/(float)PTS_PLOT_GRAPH, E)*((float)((TOT_SAMPLES/FFT_AVG)/2-BASS_OFFSET)))+BASS_OFFSET;
+    magVal = 0;
+    double nextCandidate = 0;
+    for(int j=0; j<FFT_AVG; j++){
+      // magVal += getAvg(result[j], lastIdx, arrIdx);
+      nextCandidate = getAvg(result[j], lastIdx, arrIdx);
+      if (nextCandidate > magVal)
+        magVal = nextCandidate;
+    }
+    //magVal = magVal / (float)FFT_AVG;
     lastIdx = arrIdx;
     magVal = pow(magVal, .7+(.3*((float)i/(float)PTS_PLOT_GRAPH)));
-    if (!(magVal>=0))
-      magVal = 1.;
     if (magVal > maxAmp){
       maxAmp = magVal;
       domFreq = i;
@@ -192,7 +217,8 @@ void getFreqArr(double* freq_arr) {
     }
     PREV_ARR[i] = freq_arr[i];
   }
-  fftw_destroy_plan(plan);
+  for (int i=0; i<FFT_AVG; ++i)
+    fftw_destroy_plan(plan[i]);
 }
 
 tuple<int, int, int> HSVtoRGB(float H, float S,float V){
