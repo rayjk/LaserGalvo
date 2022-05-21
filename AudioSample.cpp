@@ -1,11 +1,7 @@
 // Example program that uses portaudio to play a tone, record some audio, save
 // the audio to a file, then play the audio back.
 //
-// Uses the C++ bindings.
-//
-// Adapted from sine_example in the portaudio C++ binding example.
-//
-// Keith Vertanen
+// Adapted from code by Keith Vertanen
 
 #include <iostream>
 #include <cmath>

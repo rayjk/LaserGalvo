@@ -33,19 +33,3 @@ int AudioBuffer::RecordCallback(const void* pInputBuffer,
 	//return 1;
 	return paContinue;
 }
-
-// Clear out any data in the buffer and prepare for a new recording.
-
-
-// Dumpt the samples to a raw file
-void AudioBuffer::WriteToFile(const string& strFilename)
-{
-	fstream fout(strFilename.c_str(), ios::out|ios::binary);
-	short iSample;
-	for (VECTOR_SHORT_ITER iter = m_vectorSamples.begin(); iter != m_vectorSamples.end(); iter++)
-	{
-		iSample = (short) *iter;
-		fout.write((char *) &iSample, sizeof(short));
-	}
-	fout.close();
-}
