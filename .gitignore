@@ -1,7 +1,4 @@
-bin/AudioSample
-bin/LaserShow
-bin/AudioSample-rpi
-bin/LaserShow-rpi
+bin/*
 libHeliosDacAPI.so
 libHeliosDacAPI-rpi.so
 *.o
