@@ -11,9 +11,11 @@
 #include "HeliosDac.h"
 
 #define SCALE 1.
-#define DECAY .05
-#define ROTATE_RATE 800
-#define MAX_OVER_FRAMES 512
+#define DECAY .08
+#define MIN_VOL_PCT .01
+#define MIN_FR_MAX 0.1
+#define ROTATE_RATE 200
+#define MAX_OVER_FRAMES 200
 
 #define SAMPLE_RATE    12000
 #define TOT_SAMPLES    1024
@@ -124,12 +126,12 @@ void getFreqArr(double * freq_arr) {
   int i;
   int arrOffset;
   double maxAmp = 0.;
-  int domFreq;
-  double curAmp;
   double globalMax = 1.;
+  double frMax = 1.;
   int arrIdx;
   int lastIdx = 0;
   double magVal;
+  int grMaxCnt;
   fftw_complex result[TOT_SAMPLES];
   fftw_plan plan = fftw_plan_dft_1d(TOT_SAMPLES,
                                     SIGNAL,
@@ -148,7 +150,6 @@ void getFreqArr(double * freq_arr) {
       magVal = 1.;
     if (magVal > maxAmp) {
       maxAmp = magVal;
-      domFreq = i;
     }
     freq_arr[i] = magVal;
   }
@@ -156,11 +157,33 @@ void getFreqArr(double * freq_arr) {
   PREV_MAXS[PREV_MAXS_END] = maxAmp;
   PREV_MAXS_END = (PREV_MAXS_END + 1) % MAX_OVER_FRAMES;
   for (i = 0; i< MAX_OVER_FRAMES; ++i) {
-    if (PREV_MAXS[i] > globalMax)
-      globalMax = PREV_MAXS[i];
+    if (PREV_MAXS[i] > globalMax){
+      grMaxCnt = 0;
+      for (int j = i; j < MAX_OVER_FRAMES; j++){
+        if (PREV_MAXS[j] >= PREV_MAXS[i])
+          grMaxCnt++;
+      }
+      if (grMaxCnt >= (float)MAX_OVER_FRAMES * MIN_FR_MAX)
+        globalMax = PREV_MAXS[i];
+    }
+//      globalMax += PREV_MAXS[i];
   }
+//  globalMax /= (double)MAX_OVER_FRAMES;
+
+  for (i = 0; i < PTS_PLOT_GRAPH; i++){
+    if (freq_arr[i] > frMax)
+      frMax = freq_arr[i];
+  }
+  globalMax = max(globalMax, frMax);
+  if (globalMax < 1)
+    globalMax = 1.;
+//  cout << globalMax << endl;
   for (i = 0; i < PTS_PLOT_GRAPH; ++i) {
-    freq_arr[i] = freq_arr[i] / globalMax;
+//    freq_arr[i] = min(freq_arr[i] / globalMax, 1.);
+    if (frMax > MIN_VOL_PCT * (float)0xFFFF)
+      freq_arr[i] = freq_arr[i] / globalMax;
+    else
+      freq_arr[i] = 0;
     double diff = PREV_ARR[i] - freq_arr[i];
 
     if (diff > 0) {
