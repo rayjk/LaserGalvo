@@ -20,6 +20,9 @@
 #define ROTATE_RATE 200
 #define MAX_OVER_FRAMES 1800
 
+# define NUM_ENTS 4
+# define TRAVEL_FRAMES 120
+
 #define SAMPLE_RATE    12000
 #define TOT_SAMPLES    1024
 #define N_FREQS (TOT_SAMPLES / 2)
@@ -55,6 +58,16 @@ int          COOLDOWN_IDX_BASS = 0;
 int          COOLDOWN_IDX_TREB = 0;
 bool         INC_FLG = false;
 double       CUR_VOL = 0;
+
+float LINE_STARTS[NUM_ENTS][2] {{0,0},{0,1},{1,0},{1,1}};
+float LINE_ENDS[NUM_ENTS][2] {{1,1},{1,0},{0,1},{0,0}};
+float LINE_COLORS[NUM_ENTS] {.2,.6,.8,1.};
+float LINE_FILL[NUM_ENTS]  {1,1,1,1};
+bool LINE_FILL_TOG[NUM_ENTS] {false,false,false,false};
+bool LINE_REVERSE[NUM_ENTS] {false,false,false,false};
+int LINE_PARA[NUM_ENTS] {0,0,0,0};
+int CHG_LINE_PTH = 0;
+int CHG_LINE_FILL = 0;
 
 
  // std::chrono::high_resolution_clock::time_point latencySum;
@@ -163,21 +176,31 @@ void getFreqArr(double * freq_arr) {
   PREV_MAXS[PREV_MAXS_END] = maxAmp;
   PREV_MAXS_END = (PREV_MAXS_END + 1) % MAX_OVER_FRAMES;
   double prevAvg = 0;
+  bool notInit = false;
   for (i = (PREV_MAXS_END + 1) % MAX_OVER_FRAMES; i != int(PREV_MAXS_END + MAX_OVER_FRAMES - MAX_OVER_FRAMES * .2 ) % MAX_OVER_FRAMES; i++){
     i %= MAX_OVER_FRAMES;
+    if (PREV_MAXS[i] == 1.) {
+      notInit = true;
+      break;
+    }
     prevAvg += PREV_MAXS[i];
     if (i == int(PREV_MAXS_END + MAX_OVER_FRAMES - MAX_OVER_FRAMES * .2 ) % MAX_OVER_FRAMES ) break;
   }
-  prevAvg /= MAX_OVER_FRAMES * .8;
-  
-  double curAvg = 0;
-  for (i = int(PREV_MAXS_END + MAX_OVER_FRAMES - MAX_OVER_FRAMES * .2 ) % MAX_OVER_FRAMES; i != (PREV_MAXS_END + 1) % MAX_OVER_FRAMES; i++){
-    i %= MAX_OVER_FRAMES;
-    curAvg += PREV_MAXS[i];
-    if (i == (PREV_MAXS_END + 1) % MAX_OVER_FRAMES ) break;
+  if (!notInit) {
+    prevAvg /= MAX_OVER_FRAMES * .8;
+    
+    double curAvg = 0;
+    for (i = int(PREV_MAXS_END + MAX_OVER_FRAMES - MAX_OVER_FRAMES * .2 ) % MAX_OVER_FRAMES; i != (PREV_MAXS_END + 1) % MAX_OVER_FRAMES; i++){
+      i %= MAX_OVER_FRAMES;
+      curAvg += PREV_MAXS[i];
+      if (i == (PREV_MAXS_END + 1) % MAX_OVER_FRAMES ) break;
+    }
+    curAvg /= MAX_OVER_FRAMES * .2;
+    CUR_VOL = curAvg / prevAvg;
   }
-  curAvg /= MAX_OVER_FRAMES * .2;
-  CUR_VOL = curAvg / prevAvg;
+  else {
+    CUR_VOL = 1.;
+  }
   // cout << prevAvg << endl;
 
   for (i = 0; i< MAX_OVER_FRAMES; ++i) {
@@ -279,18 +302,6 @@ int interpBlanking(int i, int maxFrames) {
   return i;
 }
 
-# define NUM_ENTS 4
-# define TRAVEL_FRAMES 120
-float LINE_STARTS[NUM_ENTS][2] {{0,0},{0,1},{1,0},{1,1}};
-float LINE_ENDS[NUM_ENTS][2] {{1,1},{1,0},{0,1},{0,0}};
-float LINE_COLORS[NUM_ENTS] {.2,.6,.8,1.};
-float LINE_FILL[NUM_ENTS]  {1,1,1,1};
-bool LINE_FILL_TOG[NUM_ENTS] {false,false,false,false};
-bool LINE_REVERSE[NUM_ENTS] {false,false,false,false};
-int LINE_PARA[NUM_ENTS] {0,0,0,0};
-int CHG_LINE = 0;
-
-
 void genLines(bool& genFlg, bool& chgColor, int i, int loopCount, double * freq_arr, int& lastIdx,
               int& x, int& y, int& r, int& g, int& b) {
   int hue;
@@ -348,7 +359,7 @@ void genLines(bool& genFlg, bool& chgColor, int i, int loopCount, double * freq_
   fy = fys * (1. - float(i % (PTS_TOT / NUM_ENTS)) / (PTS_TOT / NUM_ENTS)) + fye * float(i % (PTS_TOT / NUM_ENTS)) / (PTS_TOT / NUM_ENTS);
 
 
-  if (genFlg && entIdx == CHG_LINE) {
+  if (genFlg && entIdx == CHG_LINE_PTH) {
     // LINE_STARTS[CHG_LINE][0] = fx;
     // LINE_STARTS[CHG_LINE][1] = fy;
     rxs = static_cast <float> (rand()) / static_cast <float> (RAND_MAX) / 3.;
@@ -359,19 +370,19 @@ void genLines(bool& genFlg, bool& chgColor, int i, int loopCount, double * freq_
     rxe = rxe + (rand() % 2) * (2./3.);
     rys = rys + (rand() % 2) * (2./3.);
     rye = rye + (rand() % 2) * (2./3.);
-    LINE_STARTS[CHG_LINE][0] = rxs;
-    LINE_STARTS[CHG_LINE][1] = rys;
-    LINE_ENDS[CHG_LINE][0] = rxe;
-    LINE_ENDS[CHG_LINE][1] = rye;
-    LINE_PARA[CHG_LINE] = loopCount + 1;
-    CHG_LINE = (CHG_LINE + 1) % NUM_ENTS;
+    LINE_STARTS[CHG_LINE_PTH][0] = rxs;
+    LINE_STARTS[CHG_LINE_PTH][1] = rys;
+    LINE_ENDS[CHG_LINE_PTH][0] = rxe;
+    LINE_ENDS[CHG_LINE_PTH][1] = rye;
+    LINE_PARA[CHG_LINE_PTH] = loopCount + 1;
+    CHG_LINE_PTH = (CHG_LINE_PTH + 1) % NUM_ENTS;
     genFlg = false;
   }
-  if (chgColor && entIdx == CHG_LINE){
-    LINE_COLORS[CHG_LINE] = static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
-    LINE_FILL[(CHG_LINE + NUM_ENTS - 1) % NUM_ENTS] = 1.;
-    LINE_FILL[CHG_LINE] = max(static_cast <float> (rand()) / static_cast <float> (RAND_MAX), (float).15);
-    CHG_LINE = (CHG_LINE + 1) % NUM_ENTS;
+  if (chgColor && entIdx == CHG_LINE_FILL){
+    LINE_COLORS[CHG_LINE_FILL] = static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
+    LINE_FILL[(CHG_LINE_FILL + NUM_ENTS - 1) % NUM_ENTS] = 1.;
+    LINE_FILL[CHG_LINE_FILL] = max(static_cast <float> (rand()) / static_cast <float> (RAND_MAX), (float).15);
+    CHG_LINE_FILL = (CHG_LINE_FILL + 1) % NUM_ENTS;
     chgColor = false;
   }
   x = fx * 0xFFF;
