@@ -14,6 +14,9 @@ HOBJSR = HeliosDac.o libusb-1.0-rpi.so
 laser:  AudioSample libHeliosDacAPI.so $(HOBJS) | bin
 	g++ -o bin/LaserShow $(HOBJS) $(LLDFLAGS) $(PERF) LaserShow.cpp
 
+beam:  AudioSample libHeliosDacAPI.so $(HOBJS) | bin
+	g++ -o bin/LaserShow $(HOBJS) $(LLDFLAGS) $(PERF) LaserShow_Beam.cpp
+
 laser-rpi:  AudioSample-rpi libHeliosDacAPI-rpi.so $(HOBJSR) | bin
 	g++ -o bin/LaserShow-rpi $(HOBJSR) $(LLDFLAGS) $(PERF) LaserShow-rpi.cpp
 
