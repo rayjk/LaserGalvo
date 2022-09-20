@@ -11,10 +11,10 @@
 #include "HeliosDac.h"
 
 #define SCALE 1.
-#define DECAY .06
-#define PCT_THRESH .02
-#define SAMP_RATIO .5
-#define COOLDOWN 30
+#define DECAY .04
+#define PCT_THRESH .015
+#define SAMP_RATIO .3
+#define COOLDOWN 18
 #define MIN_VOL_PCT .01
 #define MIN_FR_MAX 0.1
 #define ROTATE_RATE 200
@@ -65,7 +65,7 @@ float LINE_COLORS[NUM_ENTS] {.2,.6,.8,1.};
 float LINE_FILL[NUM_ENTS]  {1,1,1,1};
 bool LINE_FILL_TOG[NUM_ENTS] {false,false,false,false};
 bool LINE_REVERSE[NUM_ENTS] {false,false,false,false};
-int LINE_PARA[NUM_ENTS] {0,0,0,0};
+float LINE_PARA[NUM_ENTS] {0,0,0,0};
 int CHG_LINE_PTH = 0;
 int CHG_LINE_FILL = 0;
 
@@ -177,31 +177,31 @@ void getFreqArr(double * freq_arr) {
   PREV_MAXS_END = (PREV_MAXS_END + 1) % MAX_OVER_FRAMES;
   double prevAvg = 0;
   bool notInit = false;
-  for (i = (PREV_MAXS_END + 1) % MAX_OVER_FRAMES; i != int(PREV_MAXS_END + MAX_OVER_FRAMES - MAX_OVER_FRAMES * .2 ) % MAX_OVER_FRAMES; i++){
+  for (i = (PREV_MAXS_END + 1) % MAX_OVER_FRAMES; i != int(PREV_MAXS_END + MAX_OVER_FRAMES - MAX_OVER_FRAMES * .1 ) % MAX_OVER_FRAMES; i++){
     i %= MAX_OVER_FRAMES;
     if (PREV_MAXS[i] == 1.) {
       notInit = true;
       break;
     }
     prevAvg += PREV_MAXS[i];
-    if (i == int(PREV_MAXS_END + MAX_OVER_FRAMES - MAX_OVER_FRAMES * .2 ) % MAX_OVER_FRAMES ) break;
+    if (i == int(PREV_MAXS_END + MAX_OVER_FRAMES - MAX_OVER_FRAMES * .1 ) % MAX_OVER_FRAMES ) break;
   }
   if (!notInit) {
-    prevAvg /= MAX_OVER_FRAMES * .8;
+    prevAvg /= MAX_OVER_FRAMES * .9;
     
     double curAvg = 0;
-    for (i = int(PREV_MAXS_END + MAX_OVER_FRAMES - MAX_OVER_FRAMES * .2 ) % MAX_OVER_FRAMES; i != (PREV_MAXS_END + 1) % MAX_OVER_FRAMES; i++){
+    for (i = int(PREV_MAXS_END + MAX_OVER_FRAMES - MAX_OVER_FRAMES * .1 ) % MAX_OVER_FRAMES; i != (PREV_MAXS_END + 1) % MAX_OVER_FRAMES; i++){
       i %= MAX_OVER_FRAMES;
       curAvg += PREV_MAXS[i];
       if (i == (PREV_MAXS_END + 1) % MAX_OVER_FRAMES ) break;
     }
-    curAvg /= MAX_OVER_FRAMES * .2;
-    CUR_VOL = curAvg / prevAvg;
+    curAvg /= MAX_OVER_FRAMES * .1;
+    CUR_VOL = min(curAvg / prevAvg, 1.);
   }
   else {
     CUR_VOL = 1.;
   }
-  // cout << prevAvg << endl;
+  // cout << CUR_VOL << endl;
 
   for (i = 0; i< MAX_OVER_FRAMES; ++i) {
     if (PREV_MAXS[i] > globalMax){
@@ -302,7 +302,7 @@ int interpBlanking(int i, int maxFrames) {
   return i;
 }
 
-void genLines(bool& genFlg, bool& chgColor, int i, int loopCount, double * freq_arr, int& lastIdx,
+void genLines(bool& genFlg, bool& chgColor, int i, float loopCount, double * freq_arr, int& lastIdx,
               int& x, int& y, int& r, int& g, int& b) {
   int hue;
   float rxs;
@@ -315,45 +315,52 @@ void genLines(bool& genFlg, bool& chgColor, int i, int loopCount, double * freq_
   float fye;
   float fx;
   float fy;
-  int lineIter;
+  float lineIter;
 
   // float rad = ((sin(loopCount/100.)+1.)/2.+magVal * (sin(PI+loopCount/100.))) / 2;
   // y = freq_arr[i] * 0xFFF;
   // x = i / (float)PTS_TOT * 0xFFF;
 
   int entIdx = i*NUM_ENTS / PTS_TOT;
-  float locSpeed = TRAVEL_FRAMES / min(max((CUR_VOL), .2),2.);
+  // float locSpeed = TRAVEL_FRAMES / min(max((CUR_VOL), .2),2.);
 
   if (i*NUM_ENTS % PTS_TOT == 0){
     LINE_FILL_TOG[entIdx] = false;
   }
 
-  if (loopCount - LINE_PARA[entIdx] > locSpeed){
-    LINE_REVERSE[entIdx] = true;
-    LINE_PARA[entIdx] = loopCount;
-  }
-  else if (loopCount - LINE_PARA[entIdx] == locSpeed && LINE_REVERSE[entIdx]){
-    LINE_REVERSE[entIdx] = false;
+  if (loopCount - LINE_PARA[entIdx] > TRAVEL_FRAMES){
+    if (LINE_REVERSE[entIdx]){
+      LINE_REVERSE[entIdx] = false;
+    }
+    else{
+      LINE_REVERSE[entIdx] = true;
+    }
     LINE_PARA[entIdx] = loopCount;
   }
 
+
+  if (genFlg && i*NUM_ENTS % PTS_TOT == 0){
+    LINE_REVERSE[entIdx] = !LINE_REVERSE[entIdx];
+    LINE_PARA[entIdx] = loopCount  - (TRAVEL_FRAMES - (loopCount - LINE_PARA[entIdx]));
+  }
+
   if (LINE_REVERSE[entIdx]){
-    lineIter = locSpeed - (loopCount - LINE_PARA[entIdx]);
+    lineIter = TRAVEL_FRAMES - (loopCount - LINE_PARA[entIdx]);
   }
   else {
     lineIter = loopCount - LINE_PARA[entIdx];
   }
 
   // float locSpeed = TRAVEL_FRAMES;
-  fxs = LINE_STARTS[entIdx][0] * (1. - (float)lineIter / locSpeed) + LINE_ENDS[entIdx][0] 
-      * ((float)lineIter  / locSpeed);
-  fys = LINE_STARTS[entIdx][1] * (1. - (float)lineIter / locSpeed) + LINE_ENDS[entIdx][1] 
-      * ((float)lineIter  / locSpeed);
+  fxs = LINE_STARTS[entIdx][0] * (1. - (float)lineIter / TRAVEL_FRAMES) + LINE_ENDS[entIdx][0] 
+      * ((float)lineIter  / TRAVEL_FRAMES);
+  fys = LINE_STARTS[entIdx][1] * (1. - (float)lineIter / TRAVEL_FRAMES) + LINE_ENDS[entIdx][1] 
+      * ((float)lineIter  / TRAVEL_FRAMES);
 
-  fxe = LINE_STARTS[(entIdx+1)%NUM_ENTS][0] * (1. - (float)lineIter / locSpeed) + LINE_ENDS[(entIdx+1)%NUM_ENTS][0] 
-      * ((float)lineIter  / locSpeed);
-  fye = LINE_STARTS[(entIdx+1)%NUM_ENTS][1] * (1. - (float)lineIter / locSpeed) + LINE_ENDS[(entIdx+1)%NUM_ENTS][1] 
-      * ((float)lineIter  / locSpeed);
+  fxe = LINE_STARTS[(entIdx+1)%NUM_ENTS][0] * (1. - (float)lineIter / TRAVEL_FRAMES) + LINE_ENDS[(entIdx+1)%NUM_ENTS][0] 
+      * ((float)lineIter  / TRAVEL_FRAMES);
+  fye = LINE_STARTS[(entIdx+1)%NUM_ENTS][1] * (1. - (float)lineIter / TRAVEL_FRAMES) + LINE_ENDS[(entIdx+1)%NUM_ENTS][1] 
+      * ((float)lineIter  / TRAVEL_FRAMES);
 
   fx = fxs * (1. - float(i % (PTS_TOT / NUM_ENTS)) / (PTS_TOT / NUM_ENTS)) + fxe * float(i % (PTS_TOT / NUM_ENTS)) / (PTS_TOT / NUM_ENTS);
   fy = fys * (1. - float(i % (PTS_TOT / NUM_ENTS)) / (PTS_TOT / NUM_ENTS)) + fye * float(i % (PTS_TOT / NUM_ENTS)) / (PTS_TOT / NUM_ENTS);
@@ -362,14 +369,26 @@ void genLines(bool& genFlg, bool& chgColor, int i, int loopCount, double * freq_
   if (genFlg && entIdx == CHG_LINE_PTH) {
     // LINE_STARTS[CHG_LINE][0] = fx;
     // LINE_STARTS[CHG_LINE][1] = fy;
-    rxs = static_cast <float> (rand()) / static_cast <float> (RAND_MAX) / 3.;
-    rys = static_cast <float> (rand()) / static_cast <float> (RAND_MAX) / 3.;
-    rxe = static_cast <float> (rand()) / static_cast <float> (RAND_MAX) / 3.;
-    rye = static_cast <float> (rand()) / static_cast <float> (RAND_MAX) / 3.;
-    rxs = rxs + (rand() % 2) * (2./3.);
-    rxe = rxe + (rand() % 2) * (2./3.);
-    rys = rys + (rand() % 2) * (2./3.);
-    rye = rye + (rand() % 2) * (2./3.);
+    // rxs = static_cast <float> (rand()) / static_cast <float> (RAND_MAX) / 3.;
+    // rys = static_cast <float> (rand()) / static_cast <float> (RAND_MAX) / 3.;
+    // rxe = static_cast <float> (rand()) / static_cast <float> (RAND_MAX) / 3.;
+    // rye = static_cast <float> (rand()) / static_cast <float> (RAND_MAX) / 3.;
+    // rxs = rxs + (rand() % 2) * (2./3.);
+    // rxe = rxe + (rand() % 2) * (2./3.);
+    // rys = rys + (rand() % 2) * (2./3.);
+    // rye = rye + (rand() % 2) * (2./3.);
+    if (entIdx % 2){
+      rxs = static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
+      rxe = static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
+      rys = static_cast <float> (rand() % 2);
+      rye = (float)(((int)rys + 1) % 2);
+    }
+    else{
+      rys = static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
+      rye = static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
+      rxs = static_cast <float> (rand() % 2);
+      rxe = (float)(((int)rys + 1) % 2);
+    }
     LINE_STARTS[CHG_LINE_PTH][0] = rxs;
     LINE_STARTS[CHG_LINE_PTH][1] = rys;
     LINE_ENDS[CHG_LINE_PTH][0] = rxe;
@@ -380,8 +399,8 @@ void genLines(bool& genFlg, bool& chgColor, int i, int loopCount, double * freq_
   }
   if (chgColor && entIdx == CHG_LINE_FILL){
     LINE_COLORS[CHG_LINE_FILL] = static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
-    LINE_FILL[(CHG_LINE_FILL + NUM_ENTS - 1) % NUM_ENTS] = 1.;
-    LINE_FILL[CHG_LINE_FILL] = max(static_cast <float> (rand()) / static_cast <float> (RAND_MAX), (float).15);
+    // LINE_FILL[(CHG_LINE_FILL + NUM_ENTS - 1) % NUM_ENTS] = 1.;
+    LINE_FILL[CHG_LINE_FILL] = max(static_cast <float> (rand()) / static_cast <float> (RAND_MAX), (float).1);
     CHG_LINE_FILL = (CHG_LINE_FILL + 1) % NUM_ENTS;
     chgColor = false;
   }
@@ -391,7 +410,7 @@ void genLines(bool& genFlg, bool& chgColor, int i, int loopCount, double * freq_
   //     * 2. + loopCount * 2.) % 360;
   hue = LINE_COLORS[entIdx] * 360.;
 
-  if (i % (int)((PTS_TOT / NUM_ENTS) * LINE_FILL[entIdx]) == 0){
+  if (i * 2 % (int)((PTS_TOT / NUM_ENTS) * LINE_FILL[entIdx]) == 0){
     LINE_FILL_TOG[entIdx] = !LINE_FILL_TOG[entIdx];
   }
 
@@ -408,8 +427,9 @@ void genLines(bool& genFlg, bool& chgColor, int i, int loopCount, double * freq_
 }
 
 
-void getFrames(int loopCount)
+void getFrames(float loopCountF)
 {
+  int loopCount = (int)loopCountF;
   int x = 0;
   int y = 0;
   int r = 0;
@@ -476,7 +496,7 @@ void getFrames(int loopCount)
     locIter = 0;
 
     if (bassFlg) {cout << "bass: " << diffAvg << endl;}
-    if (trebFlg) {cout << "treb: " << diffAvg << endl;}
+    // if (trebFlg) {cout << "treb: " << diffAvg << endl;}
 
     for (int j = 0; j < PTS_TOT; j++){
 
@@ -488,7 +508,7 @@ void getFrames(int loopCount)
         // else{
         //   locIter = j;
         // }
-      genLines(bassFlg, trebFlg, j, loopCount, freq_arr, lastIdx, x, y, r, g, b);
+      genLines(bassFlg, trebFlg, j, loopCountF, freq_arr, lastIdx, x, y, r, g, b);
 
       // }
       rescaleXY(x, y);
@@ -510,7 +530,7 @@ int main(void)
   int numDevs = helios.OpenDevices();
 
   int i = 0;
-  int loopCount = 0;
+  float loopCount = 0;
 
   std::chrono::high_resolution_clock::time_point startFrame;
   std::chrono::high_resolution_clock::time_point stopFrame;
@@ -534,7 +554,7 @@ int main(void)
   while (1)
   {
     i++;
-    loopCount = loopCount + NUM_FRAMES;
+    loopCount = loopCount + NUM_FRAMES * CUR_VOL;
 
     for (int j = 0; j < numDevs; j++ )
     {
@@ -573,13 +593,13 @@ int main(void)
                      <std::chrono::milliseconds>
                      (stopFrame - startFrame)).count() / 1000.);
         startFrame = chrono::high_resolution_clock::now();
-        cout << "Avg buffer reads per frame: "
-             << readCount / 100. << endl;
-        cout << "Avg buffer latency (ms): "
-             << avgLatency / (float)numLatency << endl;
-        cout << "Last buffer latency (ms): "
-             << (float)lastLatency / 1000. << endl;
-        cout << "FPS: " << fps << endl << endl;
+        // cout << "Avg buffer reads per frame: "
+        //      << readCount / 100. << endl;
+        // cout << "Avg buffer latency (ms): "
+        //      << avgLatency / (float)numLatency << endl;
+        // cout << "Last buffer latency (ms): "
+        //      << (float)lastLatency / 1000. << endl;
+        // cout << "FPS: " << fps << endl << endl;
         avgLatency = 0;
         readCount = 0;
         numLatency = 0;
