@@ -11,10 +11,10 @@
 #include "HeliosDac.h"
 
 #define SCALE 1.
-#define DECAY .04
-#define PCT_THRESH .015
+#define DECAY .08
+#define PCT_THRESH .07
 #define SAMP_RATIO .3
-#define COOLDOWN 18
+#define COOLDOWN 10
 #define MIN_VOL_PCT .01
 #define MIN_FR_MAX 0.1
 #define ROTATE_RATE 200
@@ -36,7 +36,7 @@
 #define GRAPH_SHARP BLANKING
 
 
-#define PTS_TOT 200
+#define PTS_TOT 400
 
 #define E  2.71281
 #define PI 3.14159
@@ -272,37 +272,67 @@ void HSVtoRGB(float H, float S, float V, int& r, int& g, int& b) {
   }
 }
 
-void genGraph(int i, int loopCount, double * freq_arr, int& lastIdx,
-              int& x, int& y, int& r, int& g, int& b) {
-  int arrIdx;
-  int hue;
-  double magVal;
-  if(i < N_FREQS)
-    magVal = freq_arr[i];
-  else
-    magVal = freq_arr[i - N_FREQS];
-  float rad = ((sin(loopCount/100.)+1.)/2.+magVal * (sin(PI+loopCount/100.))) / 2;
-  y = 0xFFF/2+ (sin(2 * PI * (float)i
-      / (float)(PTS_TOT - 1)) )* 0xFFF * rad;
-  x = 0xFFF/2+ (cos(2 * PI * (float)i
-      / (float)(PTS_TOT - 1)) )* 0xFFF * rad;
-  hue = (int)((float)i / (float)(PTS_TOT - 1) * 360.
-      * 2. + loopCount * 2.) % 360;
+double lstBass = 0;
+double lstTreb = 0;
 
-  HSVtoRGB(hue, 100., 100., r, g, b);
+void genCirclePts(int i, float loopCount, double * freq_arr,
+              int& x, int& y, int& r, int& g, int& b){
+  int circPts = 40;
+  int blanking = 6;
+  int chgBlanking = 10;
+  float rad;
+
+  double curBass = 0;
+  double curTreb = 0;
+
+  double bassAvg = 0;
+  double trebAvg = 0;
+  for (int i = 0; i < PTS_TOT * SAMP_RATIO; i++) {
+    if (freq_arr[i] > curBass){
+      curBass = freq_arr[i];
+    }
+    bassAvg += freq_arr[i];
+  }
+  bassAvg /= (float)PTS_TOT * SAMP_RATIO;
+  // curBass = (curBass * .2 + bassAvg * .5 + lstBass * .4);
+  curBass = (bassAvg * .7 + lstBass * .3);
+  lstBass = curBass;
+  cout << curBass << endl;
+  
+  for (int i = (1. - SAMP_RATIO) * PTS_TOT; i < PTS_TOT; i++) {
+    if (freq_arr[i] > curTreb){
+      curTreb = freq_arr[i];
+    }
+    trebAvg += freq_arr[i];
+  }
+  trebAvg /= (float)PTS_TOT * SAMP_RATIO;
+  // curTreb = (curTreb * .2 + trebAvg * .5 + lstTreb * .4);
+  curTreb = (trebAvg * .7 + lstTreb * .3);
+  lstTreb = curTreb;
+
+  // float rad = ((sin(loopCount/100.)+1.)/2.+magVal * (sin(PI+loopCount/100.))) / 2;
+  int locIter = (i - chgBlanking * 2) * circPts / ((PTS_TOT - chgBlanking * 2) / 2);
+  // cout << locIter << endl;
+  if (i < PTS_TOT / 2){
+    rad = 1 - curBass;
+    loopCount = -1 * loopCount;
+  }
+  else{
+    rad = curTreb * .8 + .2;
+  }
+  y = (sin((locIter + (loopCount / 8.))/(float)circPts * 2*PI) / 2. * rad + .5)  * 0xFFF;
+  x = (cos((locIter + (loopCount / 8.))/(float)circPts * 2*PI) / 2. * rad + .5) * 0xFFF;
+  
+  int hue = (int)((float)locIter / (circPts / 2) * 360.) % 360;
+  if (i % (int)(PTS_TOT / (float)circPts) < blanking || (i - PTS_TOT / 2 < chgBlanking && i > PTS_TOT / 2) || i < chgBlanking) {
+    HSVtoRGB(90, 100., 0., r, g, b);
+  }
+  else{
+    HSVtoRGB(hue, 100., 100., r, g, b);
+  }
 }
 
-int interpBlanking(int i, int maxFrames) {
-  if (i == BLANKING + 1)
-    return 0;
-  if (i > maxFrames - .6 * BLANKING - 1)
-    return maxFrames - 1;
-  float factor = (float)maxFrames / (float)(maxFrames - 1.6 * BLANKING);
-  i = (float)i * factor - BLANKING * factor;
-  return i;
-}
-
-void genLines(bool& genFlg, bool& chgColor, int i, float loopCount, double * freq_arr, int& lastIdx,
+void genLines(bool& genFlg, bool& chgColor, int i, float loopCount, double * freq_arr,
               int& x, int& y, int& r, int& g, int& b) {
   int hue;
   float rxs;
@@ -449,23 +479,55 @@ void getFrames(float loopCountF)
 
   getFreqArr(freq_arr);
 
-  diffAvg = 0;
-  for (int i = 0; i < PTS_TOT * SAMP_RATIO; i++) {
-    diffAvg += max(freq_arr[i] - LST_ARR[i], 0.);
-    // diffAvg += freq_arr[i] - LST_ARR[i];
+  // diffAvg = 0;
+  // for (int i = 0; i < PTS_TOT * SAMP_RATIO; i++) {
+  //   diffAvg += max(freq_arr[i] - LST_ARR[i], 0.);
+  //   // diffAvg += freq_arr[i] - LST_ARR[i];
+  // }
+  // diffAvg /= (float)PTS_TOT * SAMP_RATIO;
+  // if (diffAvg > PCT_THRESH){
+  //   bassFlg = true;
+  // }
+
+  // diffAvg = 0;
+  // for (int i = (1. - SAMP_RATIO) * PTS_TOT; i < PTS_TOT; i++) {
+  //   diffAvg += max(freq_arr[i] - LST_ARR[i], 0.);
+  //   // diffAvg += freq_arr[i] - LST_ARR[i];
+  // }
+  // diffAvg /= (float)PTS_TOT * SAMP_RATIO;
+  // if (diffAvg > PCT_THRESH){
+  //   trebFlg = true;
+  // }
+
+  double bassMaxCur = 0;
+  double bassMaxPrev = 0;
+
+  for (int i = 0; i < PTS_TOT * SAMP_RATIO; i++){
+    if (freq_arr[i] > bassMaxCur){
+      bassMaxCur = freq_arr[i];
+    }
+    if (LST_ARR[i] > bassMaxPrev){
+      bassMaxPrev = LST_ARR[i];
+    }
   }
-  diffAvg /= (float)PTS_TOT * SAMP_RATIO;
-  if (diffAvg > PCT_THRESH){
+  double bassDiff = bassMaxCur - bassMaxPrev;
+  if (bassDiff > PCT_THRESH){
     bassFlg = true;
   }
 
-  diffAvg = 0;
-  for (int i = 1. - SAMP_RATIO; i < PTS_TOT; i++) {
-    diffAvg += max(freq_arr[i] - LST_ARR[i], 0.);
-    // diffAvg += freq_arr[i] - LST_ARR[i];
+  double trebMaxCur = 0;
+  double trebMaxPrev = 0;
+
+  for (int i = (1. - SAMP_RATIO) * PTS_TOT; i < PTS_TOT; i++) {
+    if (freq_arr[i] > trebMaxCur){
+      trebMaxCur = freq_arr[i];
+    }
+    if (LST_ARR[i] > trebMaxPrev){
+      trebMaxPrev = LST_ARR[i];
+    }
   }
-  diffAvg /= (float)PTS_TOT * SAMP_RATIO;
-  if (diffAvg > PCT_THRESH){
+  double trebDiff = trebMaxCur - trebMaxPrev;
+  if (trebDiff > PCT_THRESH){
     trebFlg = true;
   }
 
@@ -495,22 +557,15 @@ void getFrames(float loopCountF)
     loopCount = loopCount + i;
     locIter = 0;
 
-    if (bassFlg) {cout << "bass: " << diffAvg << endl;}
+    if (bassFlg) {cout << "bass: " << bassDiff << endl;}
     // if (trebFlg) {cout << "treb: " << diffAvg << endl;}
 
     for (int j = 0; j < PTS_TOT; j++){
 
-      
-      // if (genFlg){
-        // if (loopCount % 2) {
-        //   locIter = PTS_TOT - j;
-        // }
-        // else{
-        //   locIter = j;
-        // }
-      genLines(bassFlg, trebFlg, j, loopCountF, freq_arr, lastIdx, x, y, r, g, b);
 
-      // }
+      genLines(bassFlg, trebFlg, j, loopCountF, freq_arr, x, y, r, g, b);
+      // genCirclePts(j, loopCountF, freq_arr, x, y, r, g, b);
+
       rescaleXY(x, y);
       frame[i][j].x = x;
       frame[i][j].y = y;
@@ -593,13 +648,13 @@ int main(void)
                      <std::chrono::milliseconds>
                      (stopFrame - startFrame)).count() / 1000.);
         startFrame = chrono::high_resolution_clock::now();
-        // cout << "Avg buffer reads per frame: "
-        //      << readCount / 100. << endl;
-        // cout << "Avg buffer latency (ms): "
-        //      << avgLatency / (float)numLatency << endl;
-        // cout << "Last buffer latency (ms): "
-        //      << (float)lastLatency / 1000. << endl;
-        // cout << "FPS: " << fps << endl << endl;
+        cout << "Avg buffer reads per frame: "
+             << readCount / 100. << endl;
+        cout << "Avg buffer latency (ms): "
+             << avgLatency / (float)numLatency << endl;
+        cout << "Last buffer latency (ms): "
+             << (float)lastLatency / 1000. << endl;
+        cout << "FPS: " << fps << endl << endl;
         avgLatency = 0;
         readCount = 0;
         numLatency = 0;
