@@ -1,0 +1,1 @@
+ola_rdm_discover -u 1 -f
