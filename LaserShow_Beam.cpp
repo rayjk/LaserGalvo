@@ -8,20 +8,29 @@
 #include <stdio.h>
 #include <thread>
 #include <tuple>
+
+#include <stdlib.h>
+#include <unistd.h>
+#include <ola/DmxBuffer.h>
+#include <ola/Logging.h>
+#include <ola/client/StreamingClient.h>
+#include <iostream>
+
 #include "HeliosDac.h"
 
 #define SCALE 1.
-#define DECAY .08
+#define DECAY .09
 #define PCT_THRESH .07
-#define SAMP_RATIO .3
-#define COOLDOWN 10
+#define SAMP_RATIO .25
+#define COOLDOWN 13
+#define COOLDOWN_DMX 90
 #define MIN_VOL_PCT .01
 #define MIN_FR_MAX 0.1
 #define ROTATE_RATE 200
 #define MAX_OVER_FRAMES 1800
 
 # define NUM_ENTS 4
-# define TRAVEL_FRAMES 120
+# define TRAVEL_FRAMES 60
 
 #define SAMPLE_RATE    12000
 #define TOT_SAMPLES    1024
@@ -43,21 +52,41 @@
 #define REAL 0
 #define IMAG 1
 
+#define PTS_SUB (int)((float)PTS_TOT * SAMP_RATIO)
+
 using namespace std;
+
+int UNIVERSE = 1;
+ola::DmxBuffer BUFFER; // A DmxBuffer to hold the data.
+ola::client::StreamingClient OLA_CLIENT(
+  (ola::client::StreamingClient::Options())
+);
 
 HeliosPoint  frame[NUM_FRAMES][PTS_TOT];
 fftw_complex SIGNAL[TOT_SAMPLES];
-double       PREV_ARR[N_FREQS];
-double       LST_ARR[N_FREQS];
+double       PREV_ARR[PTS_TOT];
+double       LST_ARR[PTS_TOT];
+double       PREV_ARR_BASS[PTS_SUB];
+double       LST_ARR_BASS[PTS_SUB];
+double       PREV_ARR_TREB[PTS_SUB];
+double       LST_ARR_TREB[PTS_SUB];
 double       PREV_MAXS[MAX_OVER_FRAMES];
+double       PREV_MAXS_BASS[MAX_OVER_FRAMES];
+double       PREV_MAXS_TREB[MAX_OVER_FRAMES];
 double       SHIFT_SIG[TOT_SAMPLES];
 int          PREV_MAXS_END = 0;
 int          ARR_END = 0;
 bool         ARR_INIT = false;
 int          COOLDOWN_IDX_BASS = 0;
 int          COOLDOWN_IDX_TREB = 0;
+int          COOLDOWN_IDX_BASS_DMX = 0;
+int          COOLDOWN_IDX_TREB_DMX = 0;
 bool         INC_FLG = false;
 double       CUR_VOL = 0;
+
+double       BASS_ARR[PTS_SUB];
+double       TREB_ARR[PTS_SUB];
+
 
 float LINE_STARTS[NUM_ENTS][2] {{0,0},{0,1},{1,0},{1,1}};
 float LINE_ENDS[NUM_ENTS][2] {{1,1},{1,0},{0,1},{0,0}};
@@ -145,12 +174,21 @@ void getFreqArr(double * freq_arr) {
   int i;
   int arrOffset;
   double maxAmp = 0.;
+  double maxAmpBass = 0.;
+  double maxAmpTreb = 0.;
   double globalMax = 1.;
+  double globalMaxBass = 1.;
+  double globalMaxTreb = 1.;
   double frMax = 1.;
+  double frMaxBass = 1.;
+  double frMaxTreb = 1.;
   int arrIdx;
   int lastIdx = 0;
   double magVal;
   int grMaxCnt;
+  int grMaxCntBass;
+  int grMaxCntTreb;
+  double diff;
   fftw_complex result[TOT_SAMPLES];
   fftw_plan plan = fftw_plan_dft_1d(TOT_SAMPLES,
                                     SIGNAL,
@@ -170,10 +208,23 @@ void getFreqArr(double * freq_arr) {
     if (magVal > maxAmp) {
       maxAmp = magVal;
     }
+    if (i < PTS_SUB){
+      if (magVal > maxAmpBass) {
+        maxAmpBass = magVal;
+      }
+    }
+    if (i >= PTS_TOT - PTS_SUB){
+      if (magVal > maxAmpTreb) {
+        maxAmpTreb = magVal;
+      }
+    }
     freq_arr[i] = magVal;
   }
 
   PREV_MAXS[PREV_MAXS_END] = maxAmp;
+  PREV_MAXS_BASS[PREV_MAXS_END] = maxAmpBass;
+  PREV_MAXS_TREB[PREV_MAXS_END] = maxAmpTreb;
+
   PREV_MAXS_END = (PREV_MAXS_END + 1) % MAX_OVER_FRAMES;
   double prevAvg = 0;
   bool notInit = false;
@@ -213,6 +264,24 @@ void getFreqArr(double * freq_arr) {
       if (grMaxCnt >= (float)MAX_OVER_FRAMES * MIN_FR_MAX)
         globalMax = PREV_MAXS[i];
     }
+    if (PREV_MAXS_BASS[i] > globalMaxBass){
+      grMaxCntBass = 0;
+      for (int j = i; j < MAX_OVER_FRAMES; j++){
+        if (PREV_MAXS_BASS[j] >= PREV_MAXS_BASS[i])
+          grMaxCntBass++;
+      }
+      if (grMaxCntBass >= (float)MAX_OVER_FRAMES * MIN_FR_MAX)
+        globalMaxBass = PREV_MAXS_BASS[i];
+    }
+    if (PREV_MAXS_TREB[i] > globalMaxTreb){
+      grMaxCntTreb = 0;
+      for (int j = i; j < MAX_OVER_FRAMES; j++){
+        if (PREV_MAXS_TREB[j] >= PREV_MAXS_TREB[i])
+          grMaxCntTreb++;
+      }
+      if (grMaxCntTreb >= (float)MAX_OVER_FRAMES * MIN_FR_MAX)
+        globalMaxTreb = PREV_MAXS_TREB[i];
+    }
 //      globalMax += PREV_MAXS[i];
   }
 //  globalMax /= (double)MAX_OVER_FRAMES;
@@ -220,13 +289,58 @@ void getFreqArr(double * freq_arr) {
   for (i = 0; i < PTS_TOT; i++){
     if (freq_arr[i] > frMax)
       frMax = freq_arr[i];
+    if (i < PTS_SUB && freq_arr[i] > frMaxBass){
+      frMaxBass = freq_arr[i];
+    }
+    if (i > PTS_TOT - PTS_SUB && freq_arr[i] > frMaxTreb){
+      frMaxTreb = freq_arr[i];
+    }
   }
   globalMax = max(globalMax, frMax);
+  globalMaxBass = max(globalMaxBass, frMaxBass);
+  globalMaxTreb = max(globalMaxTreb, frMaxTreb);
   if (globalMax < 1)
     globalMax = 1.;
+  if (globalMaxBass < 1)
+    globalMaxBass = 1.;
+  if (globalMaxTreb < 1)
+    globalMaxTreb = 1.;
 //  cout << globalMax << endl;
   for (i = 0; i < PTS_TOT; ++i) {
 //    freq_arr[i] = min(freq_arr[i] / globalMax, 1.);
+
+    // Treble
+    if (i >= PTS_TOT - PTS_SUB){
+      int locIterTreb = i - (PTS_TOT - PTS_SUB);
+      if (frMaxTreb > MIN_VOL_PCT * (float)0xFFFF)
+        TREB_ARR[locIterTreb] = freq_arr[i] / globalMaxTreb;
+      else
+        TREB_ARR[locIterTreb] = 0;
+      diff = PREV_ARR_TREB[locIterTreb] - TREB_ARR[locIterTreb];
+
+      if (diff > 0) {
+        TREB_ARR[locIterTreb] = PREV_ARR_TREB[locIterTreb] - diff * DECAY;
+      }
+      LST_ARR_TREB[locIterTreb] = PREV_ARR_TREB[locIterTreb];
+      PREV_ARR_TREB[locIterTreb] = TREB_ARR[locIterTreb];
+
+    }
+    // Bass
+    if (i < PTS_SUB){
+      if (frMaxBass > MIN_VOL_PCT * (float)0xFFFF)
+        BASS_ARR[i] = freq_arr[i] / globalMaxBass;
+      else
+        BASS_ARR[i] = 0;
+      diff = PREV_ARR_BASS[i] - BASS_ARR[i];
+
+      if (diff > 0) {
+        BASS_ARR[i] = PREV_ARR_BASS[i] - diff * DECAY;
+      }
+      LST_ARR_BASS[i] = PREV_ARR_BASS[i];
+      PREV_ARR_BASS[i] = BASS_ARR[i];
+    }
+
+    // Global
     if (frMax > MIN_VOL_PCT * (float)0xFFFF)
       freq_arr[i] = freq_arr[i] / globalMax;
     else
@@ -236,6 +350,7 @@ void getFreqArr(double * freq_arr) {
     if (diff > 0) {
       freq_arr[i] = PREV_ARR[i] - diff * DECAY;
     }
+
     LST_ARR[i] = PREV_ARR[i];
     PREV_ARR[i] = freq_arr[i];
   }
@@ -244,7 +359,7 @@ void getFreqArr(double * freq_arr) {
 
 void HSVtoRGB(float H, float S, float V, int& r, int& g, int& b) {
   if(H>360 || H<0 || S>100 || S<0 || V>100 || V<0) {
-      cout << "The givem HSV values are not in valid range" << endl;
+      cout << "The given HSV values are not in valid range" << endl;
       exit(1);
   }
   float s = S / 100;
@@ -275,40 +390,13 @@ void HSVtoRGB(float H, float S, float V, int& r, int& g, int& b) {
 double lstBass = 0;
 double lstTreb = 0;
 
-void genCirclePts(int i, float loopCount, double * freq_arr,
+void genCirclePts(int i, float loopCount, double curBass, double curTreb, double * freq_arr,
               int& x, int& y, int& r, int& g, int& b){
   int circPts = 40;
   int blanking = 6;
   int chgBlanking = 10;
   float rad;
 
-  double curBass = 0;
-  double curTreb = 0;
-
-  double bassAvg = 0;
-  double trebAvg = 0;
-  for (int i = 0; i < PTS_TOT * SAMP_RATIO; i++) {
-    if (freq_arr[i] > curBass){
-      curBass = freq_arr[i];
-    }
-    bassAvg += freq_arr[i];
-  }
-  bassAvg /= (float)PTS_TOT * SAMP_RATIO;
-  // curBass = (curBass * .2 + bassAvg * .5 + lstBass * .4);
-  curBass = (bassAvg * .7 + lstBass * .3);
-  lstBass = curBass;
-  cout << curBass << endl;
-  
-  for (int i = (1. - SAMP_RATIO) * PTS_TOT; i < PTS_TOT; i++) {
-    if (freq_arr[i] > curTreb){
-      curTreb = freq_arr[i];
-    }
-    trebAvg += freq_arr[i];
-  }
-  trebAvg /= (float)PTS_TOT * SAMP_RATIO;
-  // curTreb = (curTreb * .2 + trebAvg * .5 + lstTreb * .4);
-  curTreb = (trebAvg * .7 + lstTreb * .3);
-  lstTreb = curTreb;
 
   // float rad = ((sin(loopCount/100.)+1.)/2.+magVal * (sin(PI+loopCount/100.))) / 2;
   int locIter = (i - chgBlanking * 2) * circPts / ((PTS_TOT - chgBlanking * 2) / 2);
@@ -457,6 +545,99 @@ void genLines(bool& genFlg, bool& chgColor, int i, float loopCount, double * fre
 }
 
 
+#define DMX_PTS 30
+int DMX_CIRC[2][DMX_PTS];
+int LST_CIRC_IDX = 0;
+#define MIN_CIRC 64
+
+void calcDmxCirc(){
+  int randOffsetX = max(static_cast <int> (rand()) % 256, MIN_CIRC);
+  int randRadiusX = min(max(static_cast <int> (rand()) % (256 - randOffsetX), MIN_CIRC), 256 - randOffsetX);
+  
+  int randOffsetY = max(static_cast <int> (rand()) % 256, MIN_CIRC);
+  int randRadiusY = min(max(static_cast <int> (rand()) % (256 - randOffsetY), MIN_CIRC), 256 - randOffsetY);
+  
+  for(int i=0; i<DMX_PTS; i++){
+    DMX_CIRC[0][i] = (sin(2*PI * (i / (float)DMX_PTS)) / 2. + .5) * (float)randRadiusX + randOffsetX;
+  }
+  for(int i=0; i<DMX_PTS; i++){
+    DMX_CIRC[1][i] = (cos(2*PI * (i / (float)DMX_PTS)) / 2. + .5) * (float)randRadiusY + randOffsetY;
+  }
+  LST_CIRC_IDX = static_cast <int> (rand()) % 30;
+}
+
+std::chrono::high_resolution_clock::time_point LAST_DMX_MOVE;
+std::chrono::high_resolution_clock::time_point LAST_DMX_LIGHT;
+int DMX_COLOR = 0;
+int DMX_PAT = 0;
+
+void genDmx(bool& bassFlg, bool& trebFlg, double bassMaxCur, double trebMaxCur, 
+            float loopCount, double * freq_arr){
+  std::chrono::high_resolution_clock::time_point cur_tme;
+  cur_tme = chrono::high_resolution_clock::now();
+  long int sinceLastLight;
+  long int sinceLastMove;
+  int brightnessBass;
+  int brightnessTreb;
+
+  sinceLastMove = chrono::duration_cast
+            <std::chrono::microseconds>(cur_tme - LAST_DMX_MOVE).count();
+  sinceLastLight = chrono::duration_cast
+            <std::chrono::microseconds>(cur_tme - LAST_DMX_LIGHT).count();
+  if(sinceLastLight > 25000){
+    LAST_DMX_LIGHT = cur_tme;
+    brightnessBass = min(pow(bassMaxCur, 2.) * 255. * 2, 255.);
+    brightnessTreb = min(pow(trebMaxCur, 2.) * 255. * 2, 255.);
+    // brightnessBass = bassMaxCur * 255.;
+    // brightnessTreb = trebMaxCur * 255.;
+    BUFFER.SetChannel(7, brightnessBass);
+    BUFFER.SetChannel(18, brightnessTreb);
+
+    // cout << brightnessBass << endl;
+
+    if(sinceLastMove > 100000){
+      LAST_DMX_MOVE = cur_tme;
+      // double maxAmp = 0;
+      // double domFreq = 0;
+      // for(int i = 0; i < PTS_TOT; i++){
+      //   if(freq_arr[i] > maxAmp){
+      //     maxAmp = freq_arr[i];
+      //     domFreq = i;
+      //   }
+      // }
+      // int dmxTilt = domFreq / (float) PTS_TOT * 255.;
+      if(bassFlg){
+        calcDmxCirc();
+        bassFlg = false;
+        // int randVal = static_cast <int> (rand()) % 256;
+        DMX_COLOR += 10;
+        DMX_COLOR %= 140;
+        DMX_PAT += 8;
+        DMX_PAT %= 64;
+        BUFFER.SetChannel(4, DMX_COLOR);
+        BUFFER.SetChannel(5, DMX_PAT);
+        BUFFER.SetChannel(15, DMX_COLOR);
+        BUFFER.SetChannel(16, DMX_PAT);
+      }
+      // cout << sinceLast << endl;
+
+      BUFFER.SetChannel(0, DMX_CIRC[0][LST_CIRC_IDX]);
+      BUFFER.SetChannel(2, DMX_CIRC[1][LST_CIRC_IDX]);
+      BUFFER.SetChannel(11, DMX_CIRC[0][LST_CIRC_IDX]);
+      BUFFER.SetChannel(13, DMX_CIRC[1][LST_CIRC_IDX]);
+      LST_CIRC_IDX = (LST_CIRC_IDX + 1) % DMX_PTS;
+
+    }
+    if (!OLA_CLIENT.SendDmx(UNIVERSE, BUFFER)) {
+      cout << "Send DMX failed" << endl;
+    }
+  }
+}
+
+
+bool bassFlgDmx = false;
+bool trebFlgDmx = false; 
+
 void getFrames(float loopCountF)
 {
   int loopCount = (int)loopCountF;
@@ -475,6 +656,7 @@ void getFrames(float loopCountF)
   bool genFlg = false;
   bool bassFlg = false;
   bool trebFlg = false;
+
   double diffAvg;
 
   getFreqArr(freq_arr);
@@ -501,38 +683,88 @@ void getFrames(float loopCountF)
 
   double bassMaxCur = 0;
   double bassMaxPrev = 0;
-
-  for (int i = 0; i < PTS_TOT * SAMP_RATIO; i++){
-    if (freq_arr[i] > bassMaxCur){
-      bassMaxCur = freq_arr[i];
-    }
-    if (LST_ARR[i] > bassMaxPrev){
-      bassMaxPrev = LST_ARR[i];
-    }
-  }
-  double bassDiff = bassMaxCur - bassMaxPrev;
-  if (bassDiff > PCT_THRESH){
-    bassFlg = true;
-  }
-
   double trebMaxCur = 0;
   double trebMaxPrev = 0;
 
-  for (int i = (1. - SAMP_RATIO) * PTS_TOT; i < PTS_TOT; i++) {
-    if (freq_arr[i] > trebMaxCur){
-      trebMaxCur = freq_arr[i];
+  double bassAvgCur = 0;
+  double trebAvgCur = 0;
+  double bassAvgPrev = 0;
+  double trebAvgPrev = 0;
+
+  double curBass;
+  double curTreb;
+
+  // curBass = (curBass * .2 + bassAvg * .5 + lstBass * .4);
+  // curBass = (bassAvg * .1 + lstBass * .9);
+  // curTreb = (curTreb * .2 + trebAvg * .5 + lstTreb * .4);
+  // lstBass = curBass;
+  // lstTreb = curTreb;
+  // cout << curBass << endl;
+
+  for (int i = 0; i < PTS_SUB; i++){
+    if (BASS_ARR[i] > bassMaxCur){
+      bassMaxCur = BASS_ARR[i];
     }
-    if (LST_ARR[i] > trebMaxPrev){
-      trebMaxPrev = LST_ARR[i];
+    if (LST_ARR_BASS[i] > bassMaxPrev){
+      bassMaxPrev = LST_ARR_BASS[i];
+    }
+    if (TREB_ARR[i] > trebMaxCur){
+      trebMaxCur = TREB_ARR[i];
+    }
+    if (LST_ARR_TREB[i] > trebMaxPrev){
+      trebMaxPrev = LST_ARR_TREB[i];
     }
   }
-  double trebDiff = trebMaxCur - trebMaxPrev;
+
+  int bCurCnt = 0;
+  int bPreCnt = 0;
+  int tCurCnt = 0;
+  int tPreCnt = 0;
+  double avgThresh = .3;
+  for (int i = 0; i < PTS_SUB; i++){
+    if (BASS_ARR[i] > avgThresh * bassMaxCur){
+      bassAvgCur += BASS_ARR[i];
+      bCurCnt++;
+    }
+    if (LST_ARR_BASS[i] > avgThresh * bassMaxPrev){
+      bassAvgPrev += LST_ARR_BASS[i];
+      bPreCnt++;}
+    if (TREB_ARR[i] > avgThresh * trebMaxCur){
+      trebAvgCur += TREB_ARR[i];
+      tCurCnt++;}
+    if (LST_ARR_TREB[i] > avgThresh * trebMaxPrev){
+      trebAvgPrev += LST_ARR_TREB[i];
+      tPreCnt++;}
+  }
+
+  bassAvgCur /= (double)bCurCnt;
+  bassAvgPrev /= (double)bPreCnt;
+  trebAvgCur /= (double)tCurCnt;
+  trebAvgPrev /= (double)tPreCnt;
+
+  curBass = (bassMaxCur * .1 + bassMaxPrev * .9);
+  curTreb = (trebMaxCur * .1 + trebMaxPrev * .9);
+
+
+  // double bassDiff = bassMaxCur - bassMaxPrev;
+  // double trebDiff = trebMaxCur - trebMaxPrev;
+
+  double bassDiff = bassAvgCur - bassAvgPrev;
+  double trebDiff = trebAvgCur - trebAvgPrev;
+
+  if (bassDiff > PCT_THRESH){
+    bassFlg = true;
+  }
   if (trebDiff > PCT_THRESH){
     trebFlg = true;
   }
+  // cout << bassMaxCur << endl;
 
-  bassFlg = bassFlg && (abs(loopCount - COOLDOWN_IDX_BASS) > COOLDOWN);
-  trebFlg = trebFlg && (abs(loopCount - COOLDOWN_IDX_TREB) > COOLDOWN);
+  bassFlg = bassFlg && bCurCnt > 5 && bassAvgCur > .4 && (abs(loopCount - COOLDOWN_IDX_BASS) > COOLDOWN);
+  trebFlg = trebFlg && tCurCnt > 5 && trebAvgCur > .4 && (abs(loopCount - COOLDOWN_IDX_TREB) > COOLDOWN);
+  bassFlgDmx = bassFlgDmx || (bassFlg && bassAvgCur > .5 && (abs(loopCount - COOLDOWN_IDX_BASS_DMX) > COOLDOWN_DMX));
+  trebFlgDmx = trebFlgDmx || (trebFlg && trebAvgCur > .5 && (abs(loopCount - COOLDOWN_IDX_TREB_DMX) > COOLDOWN_DMX));
+  
   if (bassFlg){
     // INC_FLG = true;
     // genFlg = true;
@@ -542,6 +774,14 @@ void getFrames(float loopCountF)
     // INC_FLG = true;
     // genFlg = true;
     COOLDOWN_IDX_TREB = loopCount;
+  }
+
+  // cout << bassFlgDmx << endl;
+  if (bassFlgDmx){
+    COOLDOWN_IDX_BASS_DMX = loopCount;
+  }
+  if (trebFlgDmx){
+      COOLDOWN_IDX_TREB_DMX = loopCount;
   }
   // else if (diffAvg <= .015 && INC_FLG){
   // // else if (diffAvg <= 0 && INC_FLG){
@@ -553,18 +793,20 @@ void getFrames(float loopCountF)
   // }
   // cout << diffAvg << endl;
 
+  genDmx(bassFlgDmx, trebFlg, bassAvgCur, trebAvgCur, loopCountF, freq_arr);
+
   for (int i = 0; i < NUM_FRAMES; i++) {
     loopCount = loopCount + i;
     locIter = 0;
 
-    if (bassFlg) {cout << "bass: " << bassDiff << endl;}
+    if (bassFlg) {cout << "bass: " << bassDiff << '\t' << bassAvgCur << '\t' << bCurCnt << endl;}
     // if (trebFlg) {cout << "treb: " << diffAvg << endl;}
 
     for (int j = 0; j < PTS_TOT; j++){
 
 
-      genLines(bassFlg, trebFlg, j, loopCountF, freq_arr, x, y, r, g, b);
-      // genCirclePts(j, loopCountF, freq_arr, x, y, r, g, b);
+      // genLines(bassFlg, trebFlg, j, loopCountF, freq_arr, x, y, r, g, b);
+      genCirclePts(j, loopCountF, bassAvgCur, trebAvgCur, freq_arr, x, y, r, g, b);
 
       rescaleXY(x, y);
       frame[i][j].x = x;
@@ -599,6 +841,31 @@ int main(void)
   float avgLatency;
   float fps;
   bool frameSuccess = false;
+
+  calcDmxCirc();
+
+  ola::InitLogging(ola::OLA_LOG_WARN, ola::OLA_LOG_STDERR);
+  BUFFER.Blackout(); // Set all channels to 0
+  // Create a new client.
+
+  // Setup the client, this connects to the server
+
+  while (!OLA_CLIENT.Setup()) {
+    std::cerr << "DMX Setup failed, retrying..." << endl;
+    sleep(1);
+  }
+  unsigned int universe = 1;
+  // BUFFER.SetChannel(7,0);
+  // BUFFER.SetChannel(6,0);
+  // BUFFER.SetChannel(9,0);
+  // BUFFER.SetChannel(10,0);
+  // BUFFER.SetChannel(8,0);
+  LAST_DMX_LIGHT = chrono::high_resolution_clock::now();
+  LAST_DMX_MOVE = chrono::high_resolution_clock::now();
+  if (!OLA_CLIENT.SendDmx(UNIVERSE, BUFFER)) {
+    cout << "Send DMX failed" << endl;
+  }
+  sleep(1);
 
   for(int jj = 0; jj<TOT_SAMPLES / 2; ++jj)
     PREV_ARR[jj] = 0.;

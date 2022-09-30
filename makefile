@@ -1,5 +1,6 @@
 inc = -I. -I../portaudio/bindings/cpp/include/ -I../portaudio/include/ -I../portaudio/src/common/
 lib = -lportaudiocpp -lpthread -lportaudio -lfftw3
+dmx = -I/usr/local/include -L/usr/local/lib -lola -lolacommon -lprotobuf
 
 #PERF=-pg
 #CFLAGS = -O3 $(PERF)
@@ -8,14 +9,17 @@ CFLAGS = -O3
 CPPFLAGS = $(inc)
 LDFLAGS = $(lib)
 LLDFLAGS = $(lib)
+DMXFLGS = $(dmx)
 HOBJS = HeliosDac.o libusb-1.0.so
 HOBJSR = HeliosDac.o libusb-1.0-rpi.so
+
+# PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
 
 laser:  AudioSample libHeliosDacAPI.so $(HOBJS) | bin
 	g++ -o bin/LaserShow $(HOBJS) $(LLDFLAGS) $(PERF) LaserShow.cpp
 
 beam:  AudioSample libHeliosDacAPI.so $(HOBJS) | bin
-	g++ -o bin/LaserShow $(HOBJS) $(LLDFLAGS) $(PERF) LaserShow_Beam.cpp
+	g++ -o bin/LaserShow $(HOBJS) $(LLDFLAGS) $(DMXFLGS) $(PERF) LaserShow_Beam.cpp
 
 laser-rpi:  AudioSample-rpi libHeliosDacAPI-rpi.so $(HOBJSR) | bin
 	g++ -o bin/LaserShow-rpi $(HOBJSR) $(LLDFLAGS) $(PERF) LaserShow-rpi.cpp
