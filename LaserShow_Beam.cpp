@@ -19,21 +19,22 @@
 #include "HeliosDac.h"
 
 #define SCALE 1.
-#define DECAY .09
-#define PCT_THRESH .07
-#define SAMP_RATIO .25
-#define COOLDOWN 13
+#define DECAY .04
+#define PCT_THRESH .15
+#define SCAN_TME_LIM 3000
+#define SAMP_RATIO .2
+#define COOLDOWN 10
 #define COOLDOWN_DMX 90
 #define MIN_VOL_PCT .01
 #define MIN_FR_MAX 0.1
 #define ROTATE_RATE 200
 #define MAX_OVER_FRAMES 1800
 
-# define NUM_ENTS 4
-# define TRAVEL_FRAMES 60
+#define NUM_ENTS 4
+#define TRAVEL_FRAMES 60
 
 #define SAMPLE_RATE    12000
-#define TOT_SAMPLES    1024
+#define TOT_SAMPLES    2048
 #define N_FREQS (TOT_SAMPLES / 2)
 #define BUFF_SZE       64
 #define BASS_CUTOFF_HZ 80.
@@ -74,6 +75,12 @@ double       PREV_MAXS[MAX_OVER_FRAMES];
 double       PREV_MAXS_BASS[MAX_OVER_FRAMES];
 double       PREV_MAXS_TREB[MAX_OVER_FRAMES];
 double       SHIFT_SIG[TOT_SAMPLES];
+double       LST_GLOB_MAX;
+double       CUR_GLOB_MAX;
+double       LST_BASS_MAX;
+double       CUR_BASS_MAX = -1;
+double       LST_TREB_MAX;
+double       CUR_TREB_MAX = -1;
 int          PREV_MAXS_END = 0;
 int          ARR_END = 0;
 bool         ARR_INIT = false;
@@ -299,12 +306,32 @@ void getFreqArr(double * freq_arr) {
   globalMax = max(globalMax, frMax);
   globalMaxBass = max(globalMaxBass, frMaxBass);
   globalMaxTreb = max(globalMaxTreb, frMaxTreb);
+
   if (globalMax < 1)
     globalMax = 1.;
   if (globalMaxBass < 1)
     globalMaxBass = 1.;
   if (globalMaxTreb < 1)
     globalMaxTreb = 1.;
+
+  if(CUR_BASS_MAX == -1){
+    CUR_BASS_MAX = globalMaxBass;
+  }
+  LST_BASS_MAX = CUR_BASS_MAX;
+  CUR_BASS_MAX = globalMaxBass;
+
+  if(CUR_TREB_MAX == -1){
+    CUR_TREB_MAX = globalMaxTreb;
+  }
+  LST_TREB_MAX = CUR_TREB_MAX;
+  CUR_TREB_MAX = globalMaxTreb;
+
+  if(CUR_GLOB_MAX == -1){
+    CUR_GLOB_MAX = globalMax;
+  }
+  LST_GLOB_MAX = CUR_GLOB_MAX;
+  CUR_GLOB_MAX = globalMax;
+
 //  cout << globalMax << endl;
   for (i = 0; i < PTS_TOT; ++i) {
 //    freq_arr[i] = min(freq_arr[i] / globalMax, 1.);
@@ -544,26 +571,99 @@ void genLines(bool& genFlg, bool& chgColor, int i, float loopCount, double * fre
   
 }
 
+int SCAN_ST = 0;
+int SCAN_SEL = -1;
+bool SCAN_REV = false;
+int SCAN_COL_OFFSET;
+int MODE_SEL = 0;
+#define SCAN_FRMS 30.
 
-#define DMX_PTS 30
+void HScan(int i, float loopCount, int& x, int& y, int& r, int& g, int& b){
+  //loopCount /= CUR_VOL;
+  if (loopCount - SCAN_ST > SCAN_FRMS)
+    SCAN_ST = loopCount;
+  if ((int)loopCount % 2 == 0)
+    i = PTS_TOT - i;
+  if (!SCAN_REV)
+    y = i / (float)PTS_TOT * 0xFFF;
+  else
+    y = (PTS_TOT - i) / (float)PTS_TOT * 0xFFF;
+  int locIter = loopCount - SCAN_ST;
+  if (locIter < SCAN_FRMS / 2)
+    x = locIter * 2 / SCAN_FRMS * 0xFFF;
+  else
+    x = (SCAN_FRMS - (locIter - SCAN_FRMS / 2) * 2) / SCAN_FRMS * 0xFFF;
+  if (i > 10 && i < PTS_TOT - 10 && (i < PTS_TOT / 3. || i > PTS_TOT - (PTS_TOT / 3.)))
+    HSVtoRGB((int)(x / (float)0xFFF * 360. + SCAN_COL_OFFSET) % 360, 100., 100., r, g, b);
+  else
+    HSVtoRGB(0., 100., 0., r, g, b);
+  if (locIter == SCAN_FRMS)
+    SCAN_SEL = -1;
+}
+
+void VScan(int i, float loopCount, int& x, int& y, int& r, int& g, int& b){
+  // loopCount /= CUR_VOL;
+  if (loopCount - SCAN_ST > SCAN_FRMS)
+    SCAN_ST = loopCount;
+  if ((int)loopCount % 2 == 0)
+    i = PTS_TOT - i;
+  if (!SCAN_REV)
+    x = i / (float)PTS_TOT * 0xFFF;
+  else
+    x = (PTS_TOT - i) / (float)PTS_TOT * 0xFFF;
+  int locIter = loopCount - SCAN_ST;
+  if (locIter < SCAN_FRMS / 2)
+    y = locIter * 2 / SCAN_FRMS * 0xFFF;
+  else
+    y = (SCAN_FRMS - (locIter - SCAN_FRMS / 2) * 2) / SCAN_FRMS * 0xFFF;
+  if (i > 10 && i < PTS_TOT - 10 && (i < PTS_TOT / 3. || i > PTS_TOT - (PTS_TOT / 3.)))
+    HSVtoRGB((int)(y / (float)0xFFF * 360. + SCAN_COL_OFFSET) % 360, 100., 100., r, g, b);
+  else
+    HSVtoRGB(0., 100., 0., r, g, b);
+  if (locIter == SCAN_FRMS)
+    SCAN_SEL = -1;
+}
+
+#define DMX_PTS 240
 int DMX_CIRC[2][DMX_PTS];
 int LST_CIRC_IDX = 0;
-#define MIN_CIRC 64
+#define MIN_CIRC 85
+#define PUSH_CENT 32
+int randRadiusX;
+int randRadiusY;
+bool DMX_REVERSE = false;
 
 void calcDmxCirc(){
-  int randOffsetX = max(static_cast <int> (rand()) % 256, MIN_CIRC);
-  int randRadiusX = min(max(static_cast <int> (rand()) % (256 - randOffsetX), MIN_CIRC), 256 - randOffsetX);
+  int randOffsetX = static_cast <int> (rand()) % (128);
+  randRadiusX = min(max(static_cast <int> (rand()) % (255 - randOffsetX), MIN_CIRC), 255 - randOffsetX);
   
-  int randOffsetY = max(static_cast <int> (rand()) % 256, MIN_CIRC);
-  int randRadiusY = min(max(static_cast <int> (rand()) % (256 - randOffsetY), MIN_CIRC), 256 - randOffsetY);
-  
-  for(int i=0; i<DMX_PTS; i++){
-    DMX_CIRC[0][i] = (sin(2*PI * (i / (float)DMX_PTS)) / 2. + .5) * (float)randRadiusX + randOffsetX;
+  int randOffsetY = max(static_cast <int> (rand()) % (128), PUSH_CENT);
+  if(128 - randOffsetY < 16){
+      randOffsetY = 128 - 16;
   }
-  for(int i=0; i<DMX_PTS; i++){
-    DMX_CIRC[1][i] = (cos(2*PI * (i / (float)DMX_PTS)) / 2. + .5) * (float)randRadiusY + randOffsetY;
+  do {randRadiusY = min(max(static_cast <int> (rand()) % (255 - randOffsetY), MIN_CIRC), 255 - randOffsetY - PUSH_CENT);}
+  while(abs(randOffsetY + randRadiusY - 127.5) < 64);
+
+  if(!DMX_REVERSE){
+    for(int i=0; i<DMX_PTS; i++){
+      DMX_CIRC[0][i] = (sin(2*PI * (i / (float)DMX_PTS)) / 2. + .5) * (float)randRadiusX + randOffsetX;
+    }
+    for(int i=0; i<DMX_PTS; i++){
+      DMX_CIRC[1][i] = (cos(2*PI * (i / (float)DMX_PTS)) / 2. + .5) * (float)randRadiusY + randOffsetY;
+    }
   }
-  LST_CIRC_IDX = static_cast <int> (rand()) % 30;
+  else{
+    for(int i=DMX_PTS; i>0; --i){
+      DMX_CIRC[0][i] = (sin(2*PI * (i / (float)DMX_PTS)) / 2. + .5) * (float)randRadiusX + randOffsetX;
+    }
+    for(int i=0; i<DMX_PTS; i++){
+      DMX_CIRC[1][i] = (cos(2*PI * (i / (float)DMX_PTS)) / 2. + .5) * (float)randRadiusY + randOffsetY;
+    }
+  }
+  DMX_REVERSE = !DMX_REVERSE;
+  LST_CIRC_IDX = static_cast <int> (rand()) % DMX_PTS;
+  // cout << randOffsetY << '\t' <<  randRadiusY << endl;
+
 }
 
 std::chrono::high_resolution_clock::time_point LAST_DMX_MOVE;
@@ -579,6 +679,7 @@ void genDmx(bool& bassFlg, bool& trebFlg, double bassMaxCur, double trebMaxCur,
   long int sinceLastMove;
   int brightnessBass;
   int brightnessTreb;
+  float whiteDiv = 1.;
 
   sinceLastMove = chrono::duration_cast
             <std::chrono::microseconds>(cur_tme - LAST_DMX_MOVE).count();
@@ -586,8 +687,11 @@ void genDmx(bool& bassFlg, bool& trebFlg, double bassMaxCur, double trebMaxCur,
             <std::chrono::microseconds>(cur_tme - LAST_DMX_LIGHT).count();
   if(sinceLastLight > 25000){
     LAST_DMX_LIGHT = cur_tme;
-    brightnessBass = min(pow(bassMaxCur, 2.) * 255. * 2, 255.);
-    brightnessTreb = min(pow(trebMaxCur, 2.) * 255. * 2, 255.);
+    if (DMX_COLOR == 0){
+      whiteDiv = 2.;
+    }
+    brightnessBass = min(pow(bassMaxCur, 2.) * 255. / whiteDiv, 255.);
+    brightnessTreb = min(pow(trebMaxCur, 2.) * 255. / whiteDiv, 255.);
     // brightnessBass = bassMaxCur * 255.;
     // brightnessTreb = trebMaxCur * 255.;
     BUFFER.SetChannel(7, brightnessBass);
@@ -595,7 +699,7 @@ void genDmx(bool& bassFlg, bool& trebFlg, double bassMaxCur, double trebMaxCur,
 
     // cout << brightnessBass << endl;
 
-    if(sinceLastMove > 100000){
+    if(sinceLastMove > max((int)(100000. * (max(randRadiusX, randRadiusY) / (float)(256 - MIN_CIRC))), 25000)){
       LAST_DMX_MOVE = cur_tme;
       // double maxAmp = 0;
       // double domFreq = 0;
@@ -621,11 +725,11 @@ void genDmx(bool& bassFlg, bool& trebFlg, double bassMaxCur, double trebMaxCur,
       }
       // cout << sinceLast << endl;
 
+      LST_CIRC_IDX = (int)(round(LST_CIRC_IDX + 8.* CUR_VOL)) % DMX_PTS;
       BUFFER.SetChannel(0, DMX_CIRC[0][LST_CIRC_IDX]);
       BUFFER.SetChannel(2, DMX_CIRC[1][LST_CIRC_IDX]);
       BUFFER.SetChannel(11, DMX_CIRC[0][LST_CIRC_IDX]);
       BUFFER.SetChannel(13, DMX_CIRC[1][LST_CIRC_IDX]);
-      LST_CIRC_IDX = (LST_CIRC_IDX + 1) % DMX_PTS;
 
     }
     if (!OLA_CLIENT.SendDmx(UNIVERSE, BUFFER)) {
@@ -636,7 +740,13 @@ void genDmx(bool& bassFlg, bool& trebFlg, double bassMaxCur, double trebMaxCur,
 
 
 bool bassFlgDmx = false;
-bool trebFlgDmx = false; 
+bool trebFlgDmx = false;
+double LST_BASS_DIFFS[3] = {0,0,0};
+double LST_TREB_DIFFS[3] = {0,0,0};
+int LST_BASS_DIFFS_END = 0;
+int LST_TREB_DIFFS_END = 0;
+std::chrono::high_resolution_clock::time_point TmeBassLst;
+std::chrono::high_resolution_clock::time_point TmeBassNow;
 
 void getFrames(float loopCountF)
 {
@@ -656,6 +766,7 @@ void getFrames(float loopCountF)
   bool genFlg = false;
   bool bassFlg = false;
   bool trebFlg = false;
+  bool doScan = false;
 
   double diffAvg;
 
@@ -686,6 +797,12 @@ void getFrames(float loopCountF)
   double trebMaxCur = 0;
   double trebMaxPrev = 0;
 
+  double bassMaxCurGlob = 0;
+  double trebMaxCurGlob = 0;
+  
+  double bassAvgCurGlob = 0;
+  double trebAvgCurGlob = 0;
+
   double bassAvgCur = 0;
   double trebAvgCur = 0;
   double bassAvgPrev = 0;
@@ -708,23 +825,35 @@ void getFrames(float loopCountF)
     if (LST_ARR_BASS[i] > bassMaxPrev){
       bassMaxPrev = LST_ARR_BASS[i];
     }
+    if (freq_arr[i] > bassMaxCurGlob){
+      bassMaxCurGlob = freq_arr[i];
+    }
     if (TREB_ARR[i] > trebMaxCur){
       trebMaxCur = TREB_ARR[i];
     }
     if (LST_ARR_TREB[i] > trebMaxPrev){
       trebMaxPrev = LST_ARR_TREB[i];
     }
+    if (freq_arr[i + (PTS_TOT - PTS_SUB)] > trebMaxCurGlob){
+      trebMaxCurGlob = freq_arr[i];
+    }
   }
 
   int bCurCnt = 0;
+  int bCurCntGlob = 0;
   int bPreCnt = 0;
   int tCurCnt = 0;
+  int tCurCntGlob = 0;
   int tPreCnt = 0;
-  double avgThresh = .3;
+  double avgThresh = 0.;
   for (int i = 0; i < PTS_SUB; i++){
     if (BASS_ARR[i] > avgThresh * bassMaxCur){
       bassAvgCur += BASS_ARR[i];
       bCurCnt++;
+    }
+    if (freq_arr[i] > avgThresh * bassMaxCurGlob){
+      bassAvgCurGlob += freq_arr[i];
+      bCurCntGlob++;
     }
     if (LST_ARR_BASS[i] > avgThresh * bassMaxPrev){
       bassAvgPrev += LST_ARR_BASS[i];
@@ -732,15 +861,27 @@ void getFrames(float loopCountF)
     if (TREB_ARR[i] > avgThresh * trebMaxCur){
       trebAvgCur += TREB_ARR[i];
       tCurCnt++;}
+    if (freq_arr[i + (PTS_TOT - PTS_SUB)] > avgThresh * trebMaxCurGlob){
+      trebAvgCurGlob += freq_arr[i];
+      tCurCntGlob++;
+    }
     if (LST_ARR_TREB[i] > avgThresh * trebMaxPrev){
       trebAvgPrev += LST_ARR_TREB[i];
       tPreCnt++;}
   }
 
   bassAvgCur /= (double)bCurCnt;
+  bassAvgCurGlob /= (double)bCurCntGlob;
   bassAvgPrev /= (double)bPreCnt;
   trebAvgCur /= (double)tCurCnt;
+  trebAvgCurGlob /= (double)tCurCntGlob;
   trebAvgPrev /= (double)tPreCnt;
+
+  bassAvgPrev *= LST_BASS_MAX / CUR_BASS_MAX;
+  bassMaxPrev *= LST_BASS_MAX / CUR_BASS_MAX;
+  trebAvgPrev *= LST_TREB_MAX / CUR_TREB_MAX;
+  trebMaxPrev *= LST_TREB_MAX / CUR_TREB_MAX;
+
 
   curBass = (bassMaxCur * .1 + bassMaxPrev * .9);
   curTreb = (trebMaxCur * .1 + trebMaxPrev * .9);
@@ -752,24 +893,73 @@ void getFrames(float loopCountF)
   double bassDiff = bassAvgCur - bassAvgPrev;
   double trebDiff = trebAvgCur - trebAvgPrev;
 
+  LST_BASS_DIFFS[LST_BASS_DIFFS_END] = bassDiff;
+  LST_BASS_DIFFS_END = (LST_BASS_DIFFS_END + 1 )% 3;
+
+  LST_TREB_DIFFS[LST_TREB_DIFFS_END] = trebDiff;
+  LST_TREB_DIFFS_END = (LST_TREB_DIFFS_END + 1 )% 3;
+
+  bassDiff = 0;
+  trebDiff = 0;
+  for (int i=0; i<3; i++){
+    // if(LST_BASS_DIFFS[i] > 0){
+      bassDiff += LST_BASS_DIFFS[i];
+      trebDiff += LST_TREB_DIFFS[i];
+    // }
+  }
+
+  // double bassSanity = 0.;
+  // for (int i = 0; i <= PTS_SUB/4.; i++){
+  //   if (freq_arr[i + PTS_SUB] > bassSanity){
+  //     bassSanity = freq_arr[i + PTS_SUB];
+  //   }
+  // }
+
+  // if (bassDiff > PCT_THRESH && bassMaxCurGlob > bassSanity){
+  // if (bassDiff > PCT_THRESH && bassMaxCurGlob > freq_arr[PTS_SUB]){
   if (bassDiff > PCT_THRESH){
     bassFlg = true;
+    // cout << CUR_BASS_MAX << '\t' << LST_BASS_MAX << endl;
   }
   if (trebDiff > PCT_THRESH){
     trebFlg = true;
   }
   // cout << bassMaxCur << endl;
 
-  bassFlg = bassFlg && bCurCnt > 5 && bassAvgCur > .4 && (abs(loopCount - COOLDOWN_IDX_BASS) > COOLDOWN);
-  trebFlg = trebFlg && tCurCnt > 5 && trebAvgCur > .4 && (abs(loopCount - COOLDOWN_IDX_TREB) > COOLDOWN);
-  bassFlgDmx = bassFlgDmx || (bassFlg && bassAvgCur > .5 && (abs(loopCount - COOLDOWN_IDX_BASS_DMX) > COOLDOWN_DMX));
-  trebFlgDmx = trebFlgDmx || (trebFlg && trebAvgCur > .5 && (abs(loopCount - COOLDOWN_IDX_TREB_DMX) > COOLDOWN_DMX));
+  // bassFlg = bassFlg && bCurCnt > 5 && bassMaxCurGlob > .3 && (abs(loopCount - COOLDOWN_IDX_BASS) > COOLDOWN);
+  bassFlg = bassFlg && bCurCnt > 5 && (abs(loopCount - COOLDOWN_IDX_BASS) > COOLDOWN);
+  // trebFlg = trebFlg && tCurCnt > 5 && trebMaxCurGlob > .3 && (abs(loopCount - COOLDOWN_IDX_TREB) > COOLDOWN);
+  trebFlg = trebFlg && tCurCnt > 5 && (abs(loopCount - COOLDOWN_IDX_TREB) > COOLDOWN);
+  bassFlgDmx = bassFlgDmx || (bassFlg && bassMaxCurGlob > .2 && (abs(loopCount - COOLDOWN_IDX_BASS_DMX) > COOLDOWN_DMX));
+  trebFlgDmx = trebFlgDmx || (trebFlg && trebMaxCurGlob > .2 && (abs(loopCount - COOLDOWN_IDX_TREB_DMX) > COOLDOWN_DMX));
+
+
+
   
   if (bassFlg){
     // INC_FLG = true;
     // genFlg = true;
+    TmeBassNow = chrono::high_resolution_clock::now();
+    long int sinceBass = chrono::duration_cast
+                      <std::chrono::milliseconds>(TmeBassNow - TmeBassLst).count();
+    TmeBassLst = TmeBassNow;
+    if (sinceBass > SCAN_TME_LIM){
+      doScan = true;
+    }
     COOLDOWN_IDX_BASS = loopCount;
   }
+  else{
+    doScan = false;
+  }
+
+  if (SCAN_SEL == -1 && doScan && CUR_VOL > .7){
+  // if (SCAN_SEL == -1 && bassMaxCur == 1){
+    SCAN_SEL = rand() % 2;
+    SCAN_COL_OFFSET = rand() % 360;
+    SCAN_REV = !SCAN_REV;
+    MODE_SEL = rand() % 2;
+  }
+
   if (trebFlg){
     // INC_FLG = true;
     // genFlg = true;
@@ -793,20 +983,29 @@ void getFrames(float loopCountF)
   // }
   // cout << diffAvg << endl;
 
-  genDmx(bassFlgDmx, trebFlg, bassAvgCur, trebAvgCur, loopCountF, freq_arr);
+  // genDmx(bassFlgDmx, trebFlg, bassAvgCur, trebAvgCur, loopCountF, freq_arr);
+  genDmx(bassFlgDmx, trebFlg, bassMaxCur, trebMaxCur, loopCountF, freq_arr);
 
   for (int i = 0; i < NUM_FRAMES; i++) {
     loopCount = loopCount + i;
+    loopCountF = loopCountF + i;
     locIter = 0;
 
-    if (bassFlg) {cout << "bass: " << bassDiff << '\t' << bassAvgCur << '\t' << bCurCnt << endl;}
-    // if (trebFlg) {cout << "treb: " << diffAvg << endl;}
+    if (bassFlg) {cout << "bassDiff: " << bassDiff << '\t' << "bassAvgCur: " << bassAvgCur << '\t' << "bassMaxGlob: " << bassMaxCurGlob << bCurCnt << endl;}
+    // if (trebFlg) {cout << "treb: " << trebDiff << endl;}
 
     for (int j = 0; j < PTS_TOT; j++){
 
 
       // genLines(bassFlg, trebFlg, j, loopCountF, freq_arr, x, y, r, g, b);
-      genCirclePts(j, loopCountF, bassAvgCur, trebAvgCur, freq_arr, x, y, r, g, b);
+      if (SCAN_SEL == 0)
+        VScan(j, loopCount, x, y, r, g, b);
+      else if (SCAN_SEL == 1)
+        HScan(j, loopCount, x, y, r, g, b);
+      else if (MODE_SEL == 0)
+        genLines(bassFlg, trebFlg, j, loopCountF, freq_arr, x, y, r, g, b);
+      else if (MODE_SEL == 1)
+        genCirclePts(j, loopCountF, bassAvgCur, trebAvgCur, freq_arr, x, y, r, g, b);
 
       rescaleXY(x, y);
       frame[i][j].x = x;
@@ -862,6 +1061,7 @@ int main(void)
   // BUFFER.SetChannel(8,0);
   LAST_DMX_LIGHT = chrono::high_resolution_clock::now();
   LAST_DMX_MOVE = chrono::high_resolution_clock::now();
+  TmeBassLst = chrono::high_resolution_clock::now();
   if (!OLA_CLIENT.SendDmx(UNIVERSE, BUFFER)) {
     cout << "Send DMX failed" << endl;
   }
