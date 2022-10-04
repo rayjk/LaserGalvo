@@ -1,6 +1,6 @@
-inc = -I. -I../portaudio/bindings/cpp/include/ -I../portaudio/include/ -I../portaudio/src/common/
+inc = -I. -I../portaudio/bindings/cpp/include/ -I../portaudio/include/ -I../portaudio/src/common/ -I/usr/local/include -L/usr/local/lib
 lib = -lportaudiocpp -lpthread -lportaudio -lfftw3
-dmx = -I/usr/local/include -L/usr/local/lib -lola -lolacommon -lprotobuf
+dmx = -lola -lolacommon -lprotobuf -pthread
 
 #PERF=-pg
 #CFLAGS = -O3 $(PERF)
@@ -22,7 +22,7 @@ beam:  AudioSample libHeliosDacAPI.so $(HOBJS) | bin
 	g++ -o bin/LaserShow $(HOBJS) $(LLDFLAGS) $(DMXFLGS) $(PERF) LaserShow_Beam.cpp
 
 beam-rpi:  AudioSample-rpi libHeliosDacAPI-rpi.so $(HOBJSR) | bin
-	g++ -o bin/LaserShow-rpi $(HOBJSR) $(LLDFLAGS) $(DMXFLGS) $(PERF) LaserShow_Beam-rpi.cpp
+	g++ -o bin/LaserShow-rpi $(HOBJSR) $(CPPFLAGS) $(LLDFLAGS) $(DMXFLGS) $(PERF) LaserShow_Beam-rpi.cpp
 
 laser-rpi:  AudioSample-rpi libHeliosDacAPI-rpi.so $(HOBJSR) | bin
 	g++ -o bin/LaserShow-rpi $(HOBJSR) $(LLDFLAGS) $(PERF) LaserShow-rpi.cpp
