@@ -22,10 +22,10 @@ beam:  AudioSample libHeliosDacAPI.so $(HOBJS) | bin
 	g++ -o bin/LaserShow $(HOBJS) $(LLDFLAGS) $(DMXFLGS) $(PERF) LaserShow_Beam.cpp
 
 beam-rpi:  AudioSample-rpi libHeliosDacAPI-rpi.so $(HOBJSR) | bin
-	g++ -o bin/LaserShow-rpi $(HOBJSR) $(CPPFLAGS) $(LLDFLAGS) $(DMXFLGS) $(PERF) LaserShow_Beam-rpi.cpp
+	g++ LaserShow_Beam-rpi.cpp $(HOBJSR) $(LLDFLAGS) $(DMXFLGS) $(PERF) -o bin/LaserShow-rpi
 
 laser-rpi:  AudioSample-rpi libHeliosDacAPI-rpi.so $(HOBJSR) | bin
-	g++ -o bin/LaserShow-rpi $(HOBJSR) $(LLDFLAGS) $(PERF) LaserShow-rpi.cpp
+	g++ LaserShow-rpi.cpp $(HOBJSR) $(LLDFLAGS) $(PERF) -o bin/LaserShow-rpi
 
 libHeliosDacAPI.so: HeliosDacAPI.o $(HOBJS)
 	g++ -shared -o libHeliosDacAPI.so $(HOBJS) HeliosDacAPI.o
