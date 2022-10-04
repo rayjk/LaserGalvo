@@ -19,7 +19,7 @@
 #include "HeliosDac.h"
 
 #define SCALE 1.
-#define DECAY .04
+#define DECAY .06
 #define PCT_THRESH .15
 #define SCAN_TME_LIM 3000
 #define SAMP_RATIO .2
@@ -39,6 +39,8 @@
 #define BUFF_SZE       64
 #define BASS_CUTOFF_HZ 80.
 #define BASS_OFFSET   (BASS_CUTOFF_HZ * (float)TOT_SAMPLES / (float)SAMPLE_RATE)
+#define TREB_OFFSET (1000. * (float)TOT_SAMPLES / (float)SAMPLE_RATE)
+
 
 #define NUM_FRAMES 1
 #define PPS 20000
@@ -104,11 +106,15 @@ bool LINE_REVERSE[NUM_ENTS] {false,false,false,false};
 float LINE_PARA[NUM_ENTS] {0,0,0,0};
 int CHG_LINE_PTH = 0;
 int CHG_LINE_FILL = 0;
+int PREV_X = 0;
+int PREV_Y = 0;
 
 
  // std::chrono::high_resolution_clock::time_point latencySum;
 
 void rescaleXY (int &x, int &y, float cusScale = SCALE) {
+  x = 0xFFF - x;
+  y = 0xFFF - y;
   x = x * 0.8 * cusScale;
   y = y * cusScale + (1- cusScale)/2. * 0xFFF;;
   if (x > .8 * 0xFFF)
@@ -135,9 +141,8 @@ void rotateXY (int &x, int &y, int i, int rate, bool off90 = false) {
     x = (x - 0xFFF / 2)
         * (cos((float)i / (float)rate * 2. * PI + PI))
         + 0xFFF / 2;
-    y = y * (7. / 9.);
     y = y + (sin((float)i / (float)rate * 2. * PI))
-        * 0xFFF / 9.
+        * 0xFFF / 3.
         * ((float)xStd / ((float)0xFFF / 2.));
     y = y + 0xFFF / 9.;
   }
@@ -206,10 +211,10 @@ void getFreqArr(double * freq_arr) {
 
   for (int i = 0; i<PTS_TOT; i++ ) {
     arrIdx = (int)(pow((float)i / (float)PTS_TOT, E)
-             * ((float)(TOT_SAMPLES / 2 - BASS_OFFSET))) + BASS_OFFSET;
+             * ((float)(TOT_SAMPLES / 2 - BASS_OFFSET - TREB_OFFSET))) + BASS_OFFSET;
     magVal = getAvg(result, lastIdx, arrIdx);
     lastIdx = arrIdx;
-    magVal = pow(magVal, .7 + (.3 * ((float)i / (float)PTS_TOT)));
+    magVal = pow(magVal, .75 + (.25 * ((float)(i) / (float)PTS_TOT)));
     if (!(magVal >= 0))
       magVal = 1.;
     if (magVal > maxAmp) {
@@ -414,6 +419,57 @@ void HSVtoRGB(float H, float S, float V, int& r, int& g, int& b) {
   }
 }
 
+bool isPeak(int freq, double * freq_arr){
+  bool peak = true;
+  for (int i = 1; i < 10; i++){
+    if (
+      freq_arr[freq - i] > freq_arr[freq] || 
+      freq_arr[freq + i] > freq_arr[freq])
+      peak = false;
+  }
+  return peak;
+}
+
+void genSpect(int i, float loopCount, double * freq_arr,
+              int& x, int& y, int& r, int& g, int& b){
+  float hue;
+  if (i < PTS_TOT - 10 && i > 10){
+    x = i / (float) PTS_TOT * 0xFFF;
+    hue = (int)(i / (float)PTS_TOT * 360. + loopCount * 2.) % 360;
+    // if (isPeak(i, freq_arr))
+    //   PREV_Y = freq_arr[min((int)(i * (PTS_TOT / (float)(PTS_TOT - 10))), PTS_TOT - 1)] * 0xFFF;
+    // y = PREV_Y;
+    y = freq_arr[min((int)(i * (PTS_TOT / (float)(PTS_TOT - 10))), PTS_TOT - 1)] * 0xFFF;
+    HSVtoRGB(hue, 100., 100., r, g, b);
+  }
+  else{
+    y = freq_arr[10]* 0xFFF;
+    x = 0;
+    HSVtoRGB(0., 100., 0., r, g, b);
+  }
+}
+
+float SYM_HUE = 0.;
+
+void genSym(int i, float loopCount, bool bassFlg, bool trebFlg, double curBass, double curTreb, double * freq_arr,
+              int& x, int& y, int& r, int& g, int& b){
+  float fx;
+  y = 0xFFF / 2;
+  float sX = 0xFFF / 2 - 0xFFF / 2 * curBass;
+  float eX = (0xFFF / 2 - sX) * (curTreb) + sX;
+  if (i < PTS_TOT / 2.){
+    fx = sX * (1. - i / (float)(PTS_TOT / 2.)) + eX * (i / (float)(PTS_TOT / 2.));
+  }
+  else{
+    fx = (0xFFF - eX) * (1. - i / (float)(PTS_TOT)) + (0xFFF - sX) * (i / (float)(PTS_TOT));
+  }
+  if (bassFlg || trebFlg)
+    SYM_HUE = rand() % 360;
+  x = fx;
+  HSVtoRGB(SYM_HUE, 100., 100., r, g, b);
+  rotateXY (x, y, loopCount, 120, false);
+}
+
 double lstBass = 0;
 double lstTreb = 0;
 
@@ -539,6 +595,10 @@ void genLines(bool& genFlg, bool& chgColor, int i, float loopCount, double * fre
     LINE_ENDS[CHG_LINE_PTH][0] = rxe;
     LINE_ENDS[CHG_LINE_PTH][1] = rye;
     LINE_PARA[CHG_LINE_PTH] = loopCount + 1;
+
+    LINE_COLORS[CHG_LINE_PTH] = static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
+    LINE_FILL[CHG_LINE_PTH] = max(static_cast <float> (rand()) / static_cast <float> (RAND_MAX), (float).1);
+
     CHG_LINE_PTH = (CHG_LINE_PTH + 1) % NUM_ENTS;
     genFlg = false;
   }
@@ -571,12 +631,33 @@ void genLines(bool& genFlg, bool& chgColor, int i, float loopCount, double * fre
   
 }
 
+#define SHOT_FRAMES 30.
+int SHOT_ST = 0 - SHOT_FRAMES;
+
+
 int SCAN_ST = 0;
 int SCAN_SEL = -1;
 bool SCAN_REV = false;
 int SCAN_COL_OFFSET;
 int MODE_SEL = 0;
+
 #define SCAN_FRMS 30.
+
+void shotgun(int i, float loopCount, int& x, int& y, int& r, int& g, int& b){
+  if (i % 20 == 10){
+      HSVtoRGB( (float)(rand() % 360), 100., 100., r, g, b);
+  } 
+  else if (i % 20 == 15){
+    HSVtoRGB(0., 100., 100., r, g, b);
+  } 
+  else if (i % 20 == 0){
+    PREV_X = rand() % 0xFFF;
+    PREV_Y = rand() % 0xFFF;
+    HSVtoRGB( 0., 100., 0., r, g, b);
+  }
+  x = PREV_X;
+  y = PREV_Y;
+}
 
 void HScan(int i, float loopCount, int& x, int& y, int& r, int& g, int& b){
   //loopCount /= CUR_VOL;
@@ -747,6 +828,8 @@ int LST_BASS_DIFFS_END = 0;
 int LST_TREB_DIFFS_END = 0;
 std::chrono::high_resolution_clock::time_point TmeBassLst;
 std::chrono::high_resolution_clock::time_point TmeBassNow;
+std::chrono::high_resolution_clock::time_point TmeTrebLst;
+std::chrono::high_resolution_clock::time_point TmeTrebNow;
 
 void getFrames(float loopCountF)
 {
@@ -767,6 +850,7 @@ void getFrames(float loopCountF)
   bool bassFlg = false;
   bool trebFlg = false;
   bool doScan = false;
+  bool doShot = false;
 
   double diffAvg;
 
@@ -935,7 +1019,9 @@ void getFrames(float loopCountF)
 
 
 
-  
+  if (loopCount - SHOT_ST < SHOT_FRAMES)
+    doShot = true;
+
   if (bassFlg){
     // INC_FLG = true;
     // genFlg = true;
@@ -943,7 +1029,7 @@ void getFrames(float loopCountF)
     long int sinceBass = chrono::duration_cast
                       <std::chrono::milliseconds>(TmeBassNow - TmeBassLst).count();
     TmeBassLst = TmeBassNow;
-    if (sinceBass > SCAN_TME_LIM){
+    if (sinceBass > SCAN_TME_LIM && !doShot){
       doScan = true;
     }
     COOLDOWN_IDX_BASS = loopCount;
@@ -957,12 +1043,28 @@ void getFrames(float loopCountF)
     SCAN_SEL = rand() % 2;
     SCAN_COL_OFFSET = rand() % 360;
     SCAN_REV = !SCAN_REV;
-    MODE_SEL = rand() % 2;
   }
+
+  if (doScan || doShot)
+      MODE_SEL = rand() % 4;
+      
+  if (CUR_VOL < .2 && MODE_SEL == 3){
+    MODE_SEL = rand() % 3;
+  }
+
 
   if (trebFlg){
     // INC_FLG = true;
     // genFlg = true;
+    TmeTrebNow = chrono::high_resolution_clock::now();
+    long int sinceTreb = chrono::duration_cast
+                      <std::chrono::milliseconds>(TmeTrebNow - TmeTrebLst).count();
+    TmeTrebLst = TmeTrebNow;
+    if (sinceTreb > SCAN_TME_LIM * 2 && SCAN_SEL == -1){
+      doShot = true;
+      if (loopCount - SHOT_ST > SHOT_FRAMES)
+        SHOT_ST = loopCount;
+    }
     COOLDOWN_IDX_TREB = loopCount;
   }
 
@@ -998,7 +1100,9 @@ void getFrames(float loopCountF)
 
 
       // genLines(bassFlg, trebFlg, j, loopCountF, freq_arr, x, y, r, g, b);
-      if (SCAN_SEL == 0)
+      if (doShot)
+        shotgun(j, loopCount, x, y, r, g, b);
+      else if (SCAN_SEL == 0)
         VScan(j, loopCount, x, y, r, g, b);
       else if (SCAN_SEL == 1)
         HScan(j, loopCount, x, y, r, g, b);
@@ -1006,6 +1110,10 @@ void getFrames(float loopCountF)
         genLines(bassFlg, trebFlg, j, loopCountF, freq_arr, x, y, r, g, b);
       else if (MODE_SEL == 1)
         genCirclePts(j, loopCountF, bassAvgCur, trebAvgCur, freq_arr, x, y, r, g, b);
+      else if (MODE_SEL == 2)
+        genSpect(j, loopCountF, freq_arr, x, y, r, g, b);
+      else if (MODE_SEL == 3)
+        genSym(j, loopCountF, bassFlg, trebFlg, bassMaxCur, trebMaxCur, freq_arr, x, y, r, g, b);
 
       rescaleXY(x, y);
       frame[i][j].x = x;
