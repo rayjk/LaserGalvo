@@ -34,7 +34,7 @@
 #define TRAVEL_FRAMES 60
 
 #define SAMPLE_RATE    11025
-#define TOT_SAMPLES    2048
+#define TOT_SAMPLES    1024
 #define N_FREQS (TOT_SAMPLES / 2)
 #define BUFF_SZE       80
 #define BASS_CUTOFF_HZ 80.
