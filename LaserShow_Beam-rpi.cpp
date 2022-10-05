@@ -819,7 +819,8 @@ void genDmx(bool& bassFlg, bool& trebFlg, double bassMaxCur, double trebMaxCur,
   }
 }
 
-
+bool BASS_INIT = false;
+bool DMX_INIT = false;
 bool bassFlgDmx = false;
 bool trebFlgDmx = false;
 double LST_BASS_DIFFS[3] = {0,0,0};
@@ -921,6 +922,34 @@ void getFrames(float loopCountF)
     if (freq_arr[i + (PTS_TOT - PTS_SUB)] > trebMaxCurGlob){
       trebMaxCurGlob = freq_arr[i];
     }
+  }
+  if (bassMaxCurGlob > 0 && !BASS_INIT){
+    BASS_INIT = true;
+  }
+  if (!BASS_INIT){
+    // std::chrono::high_resolution_clock::time_point cur_tme;
+    // cur_tme = chrono::high_resolution_clock::now();
+    // long int sinceLastLight = chrono::duration_cast
+    //       <std::chrono::microseconds>(cur_tme - LAST_DMX_LIGHT).count();
+    // if(sinceLastLight > 100000){
+        // LAST_DMX_LIGHT = cur_tme;
+      if (!DMX_INIT){
+        BUFFER.SetChannel(0, 100);
+        BUFFER.SetChannel(2, 33);
+
+        BUFFER.SetChannel(11, 100);
+        BUFFER.SetChannel(13, 33);
+
+        BUFFER.SetChannel(7, 255);
+        BUFFER.SetChannel(4, 10);
+
+        BUFFER.SetChannel(18, 255);
+        BUFFER.SetChannel(15, 10);
+        if (!OLA_CLIENT.SendDmx(UNIVERSE, BUFFER)) {
+          cout << "Send DMX failed" << endl;
+        }    
+    }
+    return;
   }
 
   int bCurCnt = 0;
