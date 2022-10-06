@@ -457,16 +457,25 @@ void genSym(int i, float loopCount, bool bassFlg, bool trebFlg, double curBass, 
   y = 0xFFF / 2;
   float sX = 0xFFF / 2 - 0xFFF / 2 * curBass;
   float eX = (0xFFF / 2 - sX) * (curTreb) + sX;
-  if (i < PTS_TOT / 2.){
-    fx = sX * (1. - i / (float)(PTS_TOT / 2.)) + eX * (i / (float)(PTS_TOT / 2.));
+  int blanking = 4;
+  if (i > PTS_TOT / 2. - blanking && i < PTS_TOT / 2. + blanking){
+    fx = (0xFFF - eX);
+    HSVtoRGB(0., 100., 0., r, g, b);
   }
   else{
-    fx = (0xFFF - eX) * (1. - i / (float)(PTS_TOT)) + (0xFFF - sX) * (i / (float)(PTS_TOT));
+    if (i < PTS_TOT / 2.){
+      fx = sX * (1. - i / (float)(PTS_TOT / 2. - blanking)) + eX * (i / (float)(PTS_TOT / 2. - blanking));
+    }
+    else{
+      fx = (0xFFF - eX) * (1. - (i - (PTS_TOT / 2. + blanking)) / (float)(PTS_TOT / 2. - blanking))
+           + (0xFFF - sX) * (i / (float)((PTS_TOT / 2. + blanking)));
+    }
+    HSVtoRGB(SYM_HUE, 100., 100., r, g, b);
   }
+
   if (bassFlg || trebFlg)
     SYM_HUE = rand() % 360;
   x = fx;
-  HSVtoRGB(SYM_HUE, 100., 100., r, g, b);
   rotateXY (x, y, loopCount, 120, false);
 }
 
