@@ -1,4 +1,4 @@
- // (c) 2022 Raymond Korte
+// (c) 2022 Raymond Korte
 #include <bits/stdc++.h>
 #include <chrono>
 #include <cmath>
@@ -91,6 +91,7 @@ int          COOLDOWN_IDX_TREB = 0;
 int          COOLDOWN_IDX_BASS_DMX = 0;
 int          COOLDOWN_IDX_TREB_DMX = 0;
 bool         INC_FLG = false;
+bool         BASS_INIT = false;
 double       CUR_VOL = 0;
 
 double       BASS_ARR[PTS_SUB];
@@ -251,7 +252,7 @@ void getFreqArr(double * freq_arr) {
   }
   if (!notInit) {
     prevAvg /= MAX_OVER_FRAMES * .9;
-    
+
     double curAvg = 0;
     for (i = int(PREV_MAXS_END + MAX_OVER_FRAMES - MAX_OVER_FRAMES * .1 ) % MAX_OVER_FRAMES; i != (PREV_MAXS_END + 1) % MAX_OVER_FRAMES; i++){
       i %= MAX_OVER_FRAMES;
@@ -423,7 +424,7 @@ bool isPeak(int freq, double * freq_arr){
   bool peak = true;
   for (int i = 1; i < 10; i++){
     if (
-      freq_arr[freq - i] > freq_arr[freq] || 
+      freq_arr[freq - i] > freq_arr[freq] ||
       freq_arr[freq + i] > freq_arr[freq])
       peak = false;
   }
@@ -457,18 +458,22 @@ void genSym(int i, float loopCount, bool bassFlg, bool trebFlg, double curBass, 
   y = 0xFFF / 2;
   float sX = 0xFFF / 2 - 0xFFF / 2 * curBass;
   float eX = (0xFFF / 2 - sX) * (curTreb) + sX;
-  int blanking = 4;
+  int blanking = 8;
   if (i > PTS_TOT / 2. - blanking && i < PTS_TOT / 2. + blanking){
     fx = (0xFFF - eX);
     HSVtoRGB(0., 100., 0., r, g, b);
   }
+  else if(i < blanking || i > PTS_TOT - blanking){
+    fx = sX;
+    HSVtoRGB(0., 100., 0., r, g, b);
+  }
   else{
     if (i < PTS_TOT / 2.){
-      fx = sX * (1. - i / (float)(PTS_TOT / 2. - blanking)) + eX * (i / (float)(PTS_TOT / 2. - blanking));
+      fx = sX * (1. - (i - blanking) / (float)(PTS_TOT / 2. - blanking * 2)) + eX * ((i - blanking) / (float)(PTS_TOT / 2. - blanking * 2));
     }
     else{
-      fx = (0xFFF - eX) * (1. - (i - (PTS_TOT / 2. + blanking)) / (float)(PTS_TOT / 2. - blanking))
-           + (0xFFF - sX) * (i / (float)((PTS_TOT / 2. + blanking)));
+      fx = (0xFFF - eX) * (1. - (i - (PTS_TOT / 2. + blanking)) / (float)(PTS_TOT / 2. - blanking * 2))
+           + (0xFFF - sX) * ((i - (PTS_TOT / 2. + blanking)) / (float)((PTS_TOT / 2. - blanking * 2)));
     }
     HSVtoRGB(SYM_HUE, 100., 100., r, g, b);
   }
@@ -502,7 +507,7 @@ void genCirclePts(int i, float loopCount, double curBass, double curTreb, double
   }
   y = (sin((locIter + (loopCount / 8.))/(float)circPts * 2*PI) / 2. * rad + .5)  * 0xFFF;
   x = (cos((locIter + (loopCount / 8.))/(float)circPts * 2*PI) / 2. * rad + .5) * 0xFFF;
-  
+
   int hue = (int)((float)locIter / (circPts / 2) * 360.) % 360;
   if (i % (int)(PTS_TOT / (float)circPts) < blanking || (i - PTS_TOT / 2 < chgBlanking && i > PTS_TOT / 2) || i < chgBlanking) {
     HSVtoRGB(90, 100., 0., r, g, b);
@@ -562,14 +567,14 @@ void genLines(bool& genFlg, bool& chgColor, int i, float loopCount, double * fre
   }
 
   // float locSpeed = TRAVEL_FRAMES;
-  fxs = LINE_STARTS[entIdx][0] * (1. - (float)lineIter / TRAVEL_FRAMES) + LINE_ENDS[entIdx][0] 
+  fxs = LINE_STARTS[entIdx][0] * (1. - (float)lineIter / TRAVEL_FRAMES) + LINE_ENDS[entIdx][0]
       * ((float)lineIter  / TRAVEL_FRAMES);
-  fys = LINE_STARTS[entIdx][1] * (1. - (float)lineIter / TRAVEL_FRAMES) + LINE_ENDS[entIdx][1] 
+  fys = LINE_STARTS[entIdx][1] * (1. - (float)lineIter / TRAVEL_FRAMES) + LINE_ENDS[entIdx][1]
       * ((float)lineIter  / TRAVEL_FRAMES);
 
-  fxe = LINE_STARTS[(entIdx+1)%NUM_ENTS][0] * (1. - (float)lineIter / TRAVEL_FRAMES) + LINE_ENDS[(entIdx+1)%NUM_ENTS][0] 
+  fxe = LINE_STARTS[(entIdx+1)%NUM_ENTS][0] * (1. - (float)lineIter / TRAVEL_FRAMES) + LINE_ENDS[(entIdx+1)%NUM_ENTS][0]
       * ((float)lineIter  / TRAVEL_FRAMES);
-  fye = LINE_STARTS[(entIdx+1)%NUM_ENTS][1] * (1. - (float)lineIter / TRAVEL_FRAMES) + LINE_ENDS[(entIdx+1)%NUM_ENTS][1] 
+  fye = LINE_STARTS[(entIdx+1)%NUM_ENTS][1] * (1. - (float)lineIter / TRAVEL_FRAMES) + LINE_ENDS[(entIdx+1)%NUM_ENTS][1]
       * ((float)lineIter  / TRAVEL_FRAMES);
 
   fx = fxs * (1. - float(i % (PTS_TOT / NUM_ENTS)) / (PTS_TOT / NUM_ENTS)) + fxe * float(i % (PTS_TOT / NUM_ENTS)) / (PTS_TOT / NUM_ENTS);
@@ -637,7 +642,7 @@ void genLines(bool& genFlg, bool& chgColor, int i, float loopCount, double * fre
     HSVtoRGB(hue, 100., 0., r, g, b);
 
   }
-  
+
 }
 
 #define SHOT_FRAMES 30.
@@ -655,10 +660,10 @@ int MODE_SEL = 0;
 void shotgun(int i, float loopCount, int& x, int& y, int& r, int& g, int& b){
   if (i % 20 == 10){
       HSVtoRGB( (float)(rand() % 360), 100., 100., r, g, b);
-  } 
+  }
   else if (i % 20 == 15){
     HSVtoRGB(0., 100., 100., r, g, b);
-  } 
+  }
   else if (i % 20 == 0){
     PREV_X = rand() % 0xFFF;
     PREV_Y = rand() % 0xFFF;
@@ -726,7 +731,7 @@ bool DMX_REVERSE = false;
 void calcDmxCirc(){
   int randOffsetX = static_cast <int> (rand()) % (128);
   randRadiusX = min(max(static_cast <int> (rand()) % (255 - randOffsetX), MIN_CIRC), 255 - randOffsetX);
-  
+
   int randOffsetY = max(static_cast <int> (rand()) % (128), PUSH_CENT);
   if(128 - randOffsetY < 16){
       randOffsetY = 128 - 16;
@@ -761,7 +766,7 @@ std::chrono::high_resolution_clock::time_point LAST_DMX_LIGHT;
 int DMX_COLOR = 0;
 int DMX_PAT = 0;
 
-void genDmx(bool& bassFlg, bool& trebFlg, double bassMaxCur, double trebMaxCur, 
+void genDmx(bool& bassFlg, bool& trebFlg, double bassMaxCur, double trebMaxCur,
             float loopCount, double * freq_arr){
   std::chrono::high_resolution_clock::time_point cur_tme;
   cur_tme = chrono::high_resolution_clock::now();
@@ -769,6 +774,7 @@ void genDmx(bool& bassFlg, bool& trebFlg, double bassMaxCur, double trebMaxCur,
   long int sinceLastMove;
   int brightnessBass;
   int brightnessTreb;
+  int dmxLaserCol;
   float whiteDiv = 1.;
 
   sinceLastMove = chrono::duration_cast
@@ -808,10 +814,18 @@ void genDmx(bool& bassFlg, bool& trebFlg, double bassMaxCur, double trebMaxCur,
         DMX_COLOR %= 140;
         DMX_PAT += 8;
         DMX_PAT %= 64;
+        int randOffCol = rand() % 2;
+        int lasCols[8] = {0,65,96,128,160,160,225,192};
+        if (DMX_COLOR < 80)
+          dmxLaserCol = lasCols[DMX_COLOR / 10];
+        else
+          dmxLaserCol = lasCols[7 - (DMX_COLOR-80) / 10 - randOffCol];
         BUFFER.SetChannel(4, DMX_COLOR);
         BUFFER.SetChannel(5, DMX_PAT);
         BUFFER.SetChannel(15, DMX_COLOR);
         BUFFER.SetChannel(16, DMX_PAT);
+
+        BUFFER.SetChannel(30, dmxLaserCol);
       }
       // cout << sinceLast << endl;
 
@@ -821,6 +835,10 @@ void genDmx(bool& bassFlg, bool& trebFlg, double bassMaxCur, double trebMaxCur,
       BUFFER.SetChannel(11, DMX_CIRC[0][LST_CIRC_IDX]);
       BUFFER.SetChannel(13, DMX_CIRC[1][LST_CIRC_IDX]);
 
+      if (CUR_VOL < .7 || !BASS_INIT)
+        BUFFER.SetChannel(22, 0);
+      else
+        BUFFER.SetChannel(22, 142);
     }
     if (!OLA_CLIENT.SendDmx(UNIVERSE, BUFFER)) {
       cout << "Send DMX failed" << endl;
@@ -829,7 +847,6 @@ void genDmx(bool& bassFlg, bool& trebFlg, double bassMaxCur, double trebMaxCur,
 }
 
 
-bool BASS_INIT = false;
 bool DMX_INIT = false;
 bool bassFlgDmx = false;
 bool trebFlgDmx = false;
@@ -894,7 +911,7 @@ void getFrames(float loopCountF)
 
   double bassMaxCurGlob = 0;
   double trebMaxCurGlob = 0;
-  
+
   double bassAvgCurGlob = 0;
   double trebAvgCurGlob = 0;
 
@@ -957,7 +974,7 @@ void getFrames(float loopCountF)
         BUFFER.SetChannel(15, 10);
         if (!OLA_CLIENT.SendDmx(UNIVERSE, BUFFER)) {
           cout << "Send DMX failed" << endl;
-        }    
+        }
     }
     return;
   }
@@ -1086,7 +1103,7 @@ void getFrames(float loopCountF)
 
   if (doScan || doShot)
       MODE_SEL = rand() % 4;
-      
+
   if (CUR_VOL < .2 && MODE_SEL == 3){
     MODE_SEL = rand() % 3;
   }
@@ -1133,7 +1150,7 @@ void getFrames(float loopCountF)
     locIter = 0;
 
     if (bassFlg) {cout << "bassDiff: " << bassDiff << '\t' << "bassAvgCur: " << bassAvgCur << '\t' << "bassMaxGlob: " << bassMaxCurGlob << bCurCnt << endl;}
-    // if (trebFlg) {cout << "treb: " << trebDiff << endl;}
+    if (trebFlg) {cout << "treb: " << trebDiff << endl;}
 
     for (int j = 0; j < PTS_TOT; j++){
 
