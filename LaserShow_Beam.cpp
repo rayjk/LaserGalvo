@@ -1105,7 +1105,7 @@ void getFrames(float loopCountF)
 
   sinceChg = chrono::duration_cast
                     <std::chrono::milliseconds>(tmeNow - LST_CHG).count();
-  if (sinceChg > CHG_LIM && SCAN_SEL == -1 && !doScan && CUR_VOL > .7){
+  if (bassFlg && sinceChg > CHG_LIM && SCAN_SEL == -1 && !doScan && CUR_VOL > .7){
     doScan = true;
   }
 
