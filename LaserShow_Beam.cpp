@@ -18,6 +18,9 @@
 
 #include "HeliosDac.h"
 
+#define MAX_BRIGHTNESS_FACT .666
+
+#define CHG_LIM 20000
 #define SCALE 1.
 #define DECAY .06
 #define PCT_THRESH .15
@@ -786,8 +789,8 @@ void genDmx(bool& bassFlg, bool& trebFlg, double bassMaxCur, double trebMaxCur,
     if (DMX_COLOR == 0){
       whiteDiv = 2.;
     }
-    brightnessBass = min(pow(bassMaxCur, 2.) * 255. / whiteDiv, 255.);
-    brightnessTreb = min(pow(trebMaxCur, 2.) * 255. / whiteDiv, 255.);
+    brightnessBass = min(pow(bassMaxCur, 2.) * 255. / whiteDiv, 255.) * MAX_BRIGHTNESS_FACT;
+    brightnessTreb = min(pow(trebMaxCur, 2.) * 255. / whiteDiv, 255.) * MAX_BRIGHTNESS_FACT;
     // brightnessBass = bassMaxCur * 255.;
     // brightnessTreb = trebMaxCur * 255.;
     BUFFER.SetChannel(7, brightnessBass);
@@ -835,7 +838,7 @@ void genDmx(bool& bassFlg, bool& trebFlg, double bassMaxCur, double trebMaxCur,
       BUFFER.SetChannel(11, DMX_CIRC[0][LST_CIRC_IDX]);
       BUFFER.SetChannel(13, DMX_CIRC[1][LST_CIRC_IDX]);
 
-      if (CUR_VOL < .7 || !BASS_INIT)
+      if (CUR_VOL < .6 || !BASS_INIT)
         BUFFER.SetChannel(22, 0);
       else
         BUFFER.SetChannel(22, 142);
@@ -858,6 +861,7 @@ std::chrono::high_resolution_clock::time_point TmeBassLst;
 std::chrono::high_resolution_clock::time_point TmeBassNow;
 std::chrono::high_resolution_clock::time_point TmeTrebLst;
 std::chrono::high_resolution_clock::time_point TmeTrebNow;
+std::chrono::high_resolution_clock::time_point LST_CHG;
 
 void getFrames(float loopCountF)
 {
@@ -986,6 +990,8 @@ void getFrames(float loopCountF)
   int tCurCntGlob = 0;
   int tPreCnt = 0;
   double avgThresh = 0.;
+  long int sinceChg = 0;
+
   for (int i = 0; i < PTS_SUB; i++){
     if (BASS_ARR[i] > avgThresh * bassMaxCur){
       bassAvgCur += BASS_ARR[i];
@@ -1094,6 +1100,15 @@ void getFrames(float loopCountF)
     doScan = false;
   }
 
+  std::chrono::high_resolution_clock::time_point tmeNow;
+  tmeNow = chrono::high_resolution_clock::now();
+
+  sinceChg = chrono::duration_cast
+                    <std::chrono::milliseconds>(tmeNow - LST_CHG).count();
+  if (sinceChg > CHG_LIM && SCAN_SEL == -1 && !doScan && CUR_VOL > .7){
+    doScan = true;
+  }
+
   if (SCAN_SEL == -1 && doScan && CUR_VOL > .7){
   // if (SCAN_SEL == -1 && bassMaxCur == 1){
     SCAN_SEL = rand() % 2;
@@ -1101,8 +1116,13 @@ void getFrames(float loopCountF)
     SCAN_REV = !SCAN_REV;
   }
 
-  if (doScan || doShot)
+  int prevMode = MODE_SEL;
+  if (doScan || doShot){
+    LST_CHG = chrono::high_resolution_clock::now();
+    while (prevMode == MODE_SEL) {
       MODE_SEL = rand() % 4;
+    }
+  }
 
   if (CUR_VOL < .2 && MODE_SEL == 3){
     MODE_SEL = rand() % 3;
@@ -1217,6 +1237,7 @@ int main(void)
     std::cerr << "DMX Setup failed, retrying..." << endl;
     sleep(1);
   }
+  LST_CHG = chrono::high_resolution_clock::now();
   unsigned int universe = 1;
   // BUFFER.SetChannel(7,0);
   // BUFFER.SetChannel(6,0);
